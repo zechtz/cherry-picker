@@ -61,25 +61,35 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Handle selected commits
-	if !cp.quitting {
-		selectedSHAs := cp.getSelectedSHAs()
-		if len(selectedSHAs) == 0 {
-			fmt.Println("No commits selected. Exiting.")
+	// Handle selected commits based on exit reason
+	if cp.quitting {
+		// User pressed 'q' or 'ctrl+c' - check if they want to execute
+		if !cp.executeRequested && !cp.rebaseRequested {
+			fmt.Println("Exited without executing. No actions performed.")
 			return
 		}
+	}
 
-		// Check if interactive rebase was requested
-		if cp.rebaseRequested {
-			fmt.Println("🔄 Starting interactive rebase for selected commits...")
-			if err := cp.interactiveRebase(selectedSHAs); err != nil {
-				fmt.Printf("❌ Interactive rebase failed: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println("✅ Interactive rebase completed.")
-			return
+	// Execute requested actions
+	selectedSHAs := cp.getSelectedSHAs()
+	if len(selectedSHAs) == 0 {
+		fmt.Println("No commits selected. Exiting.")
+		return
+	}
+
+	// Check if interactive rebase was requested
+	if cp.rebaseRequested {
+		fmt.Println("🔄 Starting interactive rebase for selected commits...")
+		if err := cp.interactiveRebase(selectedSHAs); err != nil {
+			fmt.Printf("❌ Interactive rebase failed: %v\n", err)
+			os.Exit(1)
 		}
+		fmt.Println("✅ Interactive rebase completed.")
+		return
+	}
 
+	// Execute cherry-pick (either via e/x or old q behavior for backward compatibility)
+	if cp.executeRequested || (!cp.quitting) {
 		if err := cp.cherryPickWithConflictHandling(selectedSHAs); err != nil {
 			if strings.Contains(err.Error(), "conflict") {
 				// Handle conflicts gracefully

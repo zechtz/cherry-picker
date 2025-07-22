@@ -32,6 +32,7 @@ type CherryPicker struct {
 	conflictMode     bool
 	conflictCommit   string
 	rebaseRequested  bool
+	executeRequested bool
 }
 
 type tickMsg time.Time

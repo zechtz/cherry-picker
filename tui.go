@@ -66,6 +66,13 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cp.quitting = true
 				return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
 			}
+		case "e", "x":
+			// Execute cherry-pick for selected commits
+			if len(cp.getSelectedSHAs()) > 0 {
+				cp.executeRequested = true
+				cp.quitting = true
+				return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
+			}
 		case "?":
 			// Show help (could be implemented as a help overlay)
 		}
@@ -202,15 +209,20 @@ func (cp *CherryPicker) getControlsDisplay() string {
 	controls = append(controls, "ENTER/SPACE=toggle")
 	controls = append(controls, "↑↓/k j=navigate")
 	
-	// Advanced controls
-	controls = append(controls, "r=range select")
-	controls = append(controls, "d=detail view")
+	// Action controls
+	controls = append(controls, "e/x=execute cherry-pick")
 	controls = append(controls, "i=interactive rebase")
+	
+	// Selection controls
+	controls = append(controls, "r=range select")
 	controls = append(controls, "a=select all")
 	controls = append(controls, "c=clear all")
 	
+	// View controls
+	controls = append(controls, "d=detail view")
+	
 	// System controls
-	controls = append(controls, "q=quit")
+	controls = append(controls, "q=quit without action")
 	
 	return "Controls: " + strings.Join(controls, ", ")
 }
