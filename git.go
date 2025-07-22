@@ -225,8 +225,15 @@ func (cp *CherryPicker) cherryPickWithConflictHandling(shas []string) error {
 	}
 
 	if cp.config.Git.AutoFetch {
-		if err := exec.Command("git", "pull", remote, targetBranch).Run(); err != nil {
-			return fmt.Errorf("failed to pull %s: %v", targetBranch, err)
+		// Check if remote exists before trying to pull
+		output, err := exec.Command("git", "remote").Output()
+		if err == nil && strings.Contains(strings.TrimSpace(string(output)), remote) {
+			// Remote exists, try to pull
+			if err := exec.Command("git", "pull", remote, targetBranch).Run(); err != nil {
+				fmt.Printf("⚠️  Could not pull from %s, continuing with local branch\n", remote)
+			}
+		} else {
+			fmt.Printf("⚠️  No '%s' remote configured, using local branch only\n", remote)
 		}
 	}
 
@@ -339,8 +346,15 @@ func (cp *CherryPicker) cherryPick(shas []string) error {
 	}
 
 	if cp.config.Git.AutoFetch {
-		if err := exec.Command("git", "pull", remote, targetBranch).Run(); err != nil {
-			return fmt.Errorf("failed to pull %s: %v", targetBranch, err)
+		// Check if remote exists before trying to pull
+		output, err := exec.Command("git", "remote").Output()
+		if err == nil && strings.Contains(strings.TrimSpace(string(output)), remote) {
+			// Remote exists, try to pull
+			if err := exec.Command("git", "pull", remote, targetBranch).Run(); err != nil {
+				fmt.Printf("⚠️  Could not pull from %s, continuing with local branch\n", remote)
+			}
+		} else {
+			fmt.Printf("⚠️  No '%s' remote configured, using local branch only\n", remote)
 		}
 	}
 
