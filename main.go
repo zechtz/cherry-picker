@@ -10,13 +10,37 @@ import (
 
 func main() {
 	var reverse bool
+	var generateConfig bool
 	flag.BoolVar(&reverse, "reverse", false, "display commits in reverse order")
+	flag.BoolVar(&generateConfig, "generate-config", false, "generate default configuration file")
 	flag.Parse()
+
+	// Handle config generation
+	if generateConfig {
+		if err := GenerateDefaultConfigFile(); err != nil {
+			fmt.Printf("❌ Error generating config: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Load configuration
+	config, err := LoadConfig()
+	if err != nil {
+		fmt.Printf("❌ Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// CLI flags override config defaults
+	if reverse {
+		config.Behavior.DefaultReverse = true
+	}
 
 	cp := &CherryPicker{
 		selected:    make(map[string]bool),
 		cursorBlink: true,
-		reverse:     reverse,
+		reverse:     config.Behavior.DefaultReverse,
+		config:      config,
 	}
 
 	if err := cp.setup(); err != nil {

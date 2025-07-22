@@ -17,6 +17,7 @@ type CherryPicker struct {
 	quitting      bool
 	cursorBlink   bool
 	reverse       bool
+	config        *Config
 }
 
 type tickMsg time.Time

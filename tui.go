@@ -14,7 +14,8 @@ func (cp *CherryPicker) Init() tea.Cmd {
 }
 
 func (cp *CherryPicker) tickCmd() tea.Cmd {
-	return tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
+	interval := time.Duration(cp.config.UI.CursorBlinkInterval) * time.Millisecond
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }

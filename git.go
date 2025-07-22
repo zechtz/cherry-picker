@@ -17,8 +17,11 @@ func (cp *CherryPicker) validateBranch() error {
 		return fmt.Errorf("not on a valid Git branch")
 	}
 
-	if cp.currentBranch == "dev" || cp.currentBranch == "staging" || cp.currentBranch == "live" {
-		return fmt.Errorf("don't run this script on dev/staging/live directly")
+	// Check if current branch is in excluded branches
+	for _, excluded := range cp.config.Git.ExcludedBranches {
+		if cp.currentBranch == excluded {
+			return fmt.Errorf("don't run this script on %s directly", excluded)
+		}
 	}
 
 	output, err = exec.Command("git", "config", "user.name").Output()
@@ -31,9 +34,14 @@ func (cp *CherryPicker) validateBranch() error {
 }
 
 func (cp *CherryPicker) fetchOrigin() error {
-	fmt.Printf("🔍 Detecting unique commits in %s that are not in dev...\n", cp.currentBranch)
+	fmt.Printf("🔍 Detecting unique commits in %s that are not in %s...\n", cp.currentBranch, cp.config.Git.SourceBranch)
 
-	// Check if origin remote exists
+	// Skip fetch if auto-fetch is disabled
+	if !cp.config.Git.AutoFetch {
+		return nil
+	}
+
+	// Check if remote exists
 	output, err := exec.Command("git", "remote").Output()
 	if err != nil {
 		fmt.Println("⚠️  No git remotes configured, working with local branches only")
@@ -41,30 +49,33 @@ func (cp *CherryPicker) fetchOrigin() error {
 	}
 
 	remotes := strings.TrimSpace(string(output))
-	if !strings.Contains(remotes, "origin") {
-		fmt.Println("⚠️  No 'origin' remote configured, working with local branches only")
+	if !strings.Contains(remotes, cp.config.Git.Remote) {
+		fmt.Printf("⚠️  No '%s' remote configured, working with local branches only\n", cp.config.Git.Remote)
 		return nil
 	}
 
 	// Try to fetch, but don't fail if it doesn't work
-	if err := exec.Command("git", "fetch", "origin").Run(); err != nil {
-		fmt.Println("⚠️  Could not fetch from origin, working with local branches only")
+	if err := exec.Command("git", "fetch", cp.config.Git.Remote).Run(); err != nil {
+		fmt.Printf("⚠️  Could not fetch from %s, working with local branches only\n", cp.config.Git.Remote)
 	}
 
 	return nil
 }
 
 func (cp *CherryPicker) getUniqueCommits() error {
-	// Try origin/dev first, then fall back to dev, then compare with initial commit
+	// Try remote/source branch first, then fall back to local source branch
 	var cmd *exec.Cmd
+	
+	remoteBranch := cp.config.Git.Remote + "/" + cp.config.Git.SourceBranch
+	localBranch := cp.config.Git.SourceBranch
 
-	// Check if origin/dev exists
-	if err := exec.Command("git", "rev-parse", "--verify", "origin/dev").Run(); err == nil {
-		cmd = exec.Command("git", "log", "origin/dev..HEAD", "--author="+cp.authorName, "--oneline")
-	} else if err := exec.Command("git", "rev-parse", "--verify", "dev").Run(); err == nil {
-		cmd = exec.Command("git", "log", "dev..HEAD", "--author="+cp.authorName, "--oneline")
+	// Check if remote/source branch exists
+	if err := exec.Command("git", "rev-parse", "--verify", remoteBranch).Run(); err == nil {
+		cmd = exec.Command("git", "log", remoteBranch+"..HEAD", "--author="+cp.authorName, "--oneline")
+	} else if err := exec.Command("git", "rev-parse", "--verify", localBranch).Run(); err == nil {
+		cmd = exec.Command("git", "log", localBranch+"..HEAD", "--author="+cp.authorName, "--oneline")
 	} else {
-		// No dev branch exists, show all commits by author
+		// No source branch exists, show all commits by author
 		cmd = exec.Command("git", "log", "--author="+cp.authorName, "--oneline")
 	}
 
@@ -99,13 +110,18 @@ func (cp *CherryPicker) getUniqueCommits() error {
 }
 
 func (cp *CherryPicker) cherryPick(shas []string) error {
-	fmt.Println("🔀 Switching to clean-staging...")
-	if err := exec.Command("git", "checkout", "clean-staging").Run(); err != nil {
-		return fmt.Errorf("failed to checkout clean-staging: %v", err)
+	targetBranch := cp.config.Git.TargetBranch
+	remote := cp.config.Git.Remote
+	
+	fmt.Printf("🔀 Switching to %s...\n", targetBranch)
+	if err := exec.Command("git", "checkout", targetBranch).Run(); err != nil {
+		return fmt.Errorf("failed to checkout %s: %v", targetBranch, err)
 	}
 
-	if err := exec.Command("git", "pull", "origin", "clean-staging").Run(); err != nil {
-		return fmt.Errorf("failed to pull clean-staging: %v", err)
+	if cp.config.Git.AutoFetch {
+		if err := exec.Command("git", "pull", remote, targetBranch).Run(); err != nil {
+			return fmt.Errorf("failed to pull %s: %v", targetBranch, err)
+		}
 	}
 
 	fmt.Println("🍒 Cherry-picking selected commits...")
@@ -115,9 +131,19 @@ func (cp *CherryPicker) cherryPick(shas []string) error {
 	}
 
 	fmt.Println("✅ Cherry-pick successful.")
-	fmt.Println("🛑 Cherry-picked to clean-staging but not pushed. Review and push manually.")
+	
+	if cp.config.Behavior.AutoPush {
+		fmt.Printf("🚀 Pushing to %s...\n", remote)
+		if err := exec.Command("git", "push", remote, targetBranch).Run(); err != nil {
+			return fmt.Errorf("failed to push: %v", err)
+		}
+		fmt.Println("✅ Pushed successfully.")
+	} else {
+		fmt.Printf("🛑 Cherry-picked to %s but not pushed. Review and push manually.\n", targetBranch)
+	}
+	
 	fmt.Println()
-	fmt.Println("📣 Now you can open a merge request to live when ready.")
+	fmt.Println("📣 Now you can open a merge request when ready.")
 
 	return nil
 }
