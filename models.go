@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -53,6 +54,10 @@ type CherryPicker struct {
 	previewCommit    *Commit
 	previewDiff      string
 	previewStats     string
+	branchMode       bool
+	branchSwitchType string // "target" or "source"
+	availableBranches []string
+	branchIndex      int
 }
 
 type tickMsg time.Time
@@ -352,4 +357,88 @@ func (cp *CherryPicker) toggleConflictResolution() {
 	if cp.conflictMode {
 		cp.exitConflictMode()
 	}
+}
+
+// enterBranchMode enters branch selection mode
+func (cp *CherryPicker) enterBranchMode(switchType string) {
+	cp.branchMode = true
+	cp.branchSwitchType = switchType
+	cp.branchIndex = 0
+	cp.loadAvailableBranches()
+}
+
+// exitBranchMode exits branch selection mode
+func (cp *CherryPicker) exitBranchMode() {
+	cp.branchMode = false
+	cp.branchSwitchType = ""
+	cp.availableBranches = nil
+	cp.branchIndex = 0
+}
+
+// loadAvailableBranches loads the list of available branches
+func (cp *CherryPicker) loadAvailableBranches() {
+	cp.availableBranches = nil
+	
+	// This will be implemented in git.go
+	if branches, err := cp.getAvailableBranches(); err == nil {
+		cp.availableBranches = branches
+		
+		// Try to select current target/source branch as default
+		currentBranch := ""
+		if cp.branchSwitchType == "target" {
+			currentBranch = cp.config.Git.TargetBranch
+		} else {
+			currentBranch = cp.config.Git.SourceBranch
+		}
+		
+		// Find and select current branch
+		for i, branch := range cp.availableBranches {
+			if branch == currentBranch {
+				cp.branchIndex = i
+				break
+			}
+		}
+	}
+}
+
+// selectBranch applies the selected branch and reloads commits
+func (cp *CherryPicker) selectBranch() error {
+	if cp.branchIndex >= len(cp.availableBranches) {
+		return fmt.Errorf("invalid branch selection")
+	}
+	
+	selectedBranch := cp.availableBranches[cp.branchIndex]
+	
+	// Update configuration
+	if cp.branchSwitchType == "target" {
+		cp.config.Git.TargetBranch = selectedBranch
+	} else {
+		cp.config.Git.SourceBranch = selectedBranch
+	}
+	
+	// Exit branch mode
+	cp.exitBranchMode()
+	
+	// Reload commits with new branch configuration
+	return cp.reloadCommits()
+}
+
+// reloadCommits reloads the commit list with current configuration
+func (cp *CherryPicker) reloadCommits() error {
+	// Clear current state
+	cp.commits = nil
+	cp.selected = make(map[string]bool)
+	cp.currentIndex = 0
+	cp.filteredCommits = nil
+	cp.searchQuery = ""
+	cp.searchMode = false
+	cp.previewMode = false
+	cp.previewCommit = nil
+	
+	// Reload commits using existing logic
+	if err := cp.fetchOrigin(); err != nil {
+		return err
+	}
+	
+	return cp.getUniqueCommits()
 }

@@ -33,6 +33,11 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return cp.handleConflictInput(msg)
 		}
 		
+		// Handle branch mode input differently
+		if cp.branchMode {
+			return cp.handleBranchInput(msg)
+		}
+		
 		switch msg.String() {
 		case "ctrl+c", "q":
 			cp.quitting = true
@@ -61,6 +66,12 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "p", "tab":
 			// Toggle preview mode
 			cp.togglePreviewMode()
+		case "b":
+			// Switch target branch
+			cp.enterBranchMode("target")
+		case "B":
+			// Switch source branch
+			cp.enterBranchMode("source")
 		case "r":
 			// Toggle range selection mode
 			cp.toggleRangeSelection()
@@ -170,6 +181,10 @@ func (cp *CherryPicker) View() string {
 	
 	if cp.conflictMode {
 		return cp.renderConflictView()
+	}
+	
+	if cp.branchMode {
+		return cp.renderBranchView()
 	}
 
 	var s strings.Builder
@@ -464,6 +479,97 @@ func (cp *CherryPicker) renderConflictView() string {
 	return s.String()
 }
 
+// handleBranchInput handles keyboard input when in branch selection mode
+func (cp *CherryPicker) handleBranchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		cp.quitting = true
+		return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
+	case "esc":
+		// Exit branch mode without changes
+		cp.exitBranchMode()
+	case "enter":
+		// Select the current branch and reload commits
+		if err := cp.selectBranch(); err != nil {
+			// Handle error, but for now just exit branch mode
+			cp.exitBranchMode()
+		}
+	case "down", "j":
+		// Navigate down in branch list
+		if cp.branchIndex < len(cp.availableBranches)-1 {
+			cp.branchIndex++
+		}
+	case "up", "k":
+		// Navigate up in branch list
+		if cp.branchIndex > 0 {
+			cp.branchIndex--
+		}
+	case "r":
+		// Refresh branch list
+		cp.loadAvailableBranches()
+	}
+	return cp, nil
+}
+
+// renderBranchView renders the branch selection interface
+func (cp *CherryPicker) renderBranchView() string {
+	var s strings.Builder
+	
+	switchType := "Target"
+	if cp.branchSwitchType == "source" {
+		switchType = "Source"
+	}
+	
+	s.WriteString(fmt.Sprintf("🌿 Switch %s Branch\n", switchType))
+	s.WriteString("═══════════════════════════════════════════════════════════════════════════════\n\n")
+	
+	// Show current configuration
+	s.WriteString("📋 Current Configuration:\n")
+	s.WriteString(fmt.Sprintf("  Source Branch: %s (compare against)\n", cp.config.Git.SourceBranch))
+	s.WriteString(fmt.Sprintf("  Target Branch: %s (cherry-pick to)\n", cp.config.Git.TargetBranch))
+	s.WriteString(fmt.Sprintf("  Current Branch: %s\n", cp.currentBranch))
+	s.WriteString("\n")
+	
+	if len(cp.availableBranches) == 0 {
+		s.WriteString("❌ No available branches found.\n\n")
+		s.WriteString("Press ESC to go back or 'r' to refresh.\n")
+		return s.String()
+	}
+	
+	s.WriteString(fmt.Sprintf("🌿 Select New %s Branch:\n", switchType))
+	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n")
+	
+	for i, branch := range cp.availableBranches {
+		cursor := "  "
+		if i == cp.branchIndex {
+			cursor = "→ "
+		}
+		
+		// Highlight current target/source branch
+		current := ""
+		if cp.branchSwitchType == "target" && branch == cp.config.Git.TargetBranch {
+			current = " (current target)"
+		} else if cp.branchSwitchType == "source" && branch == cp.config.Git.SourceBranch {
+			current = " (current source)"
+		}
+		
+		s.WriteString(fmt.Sprintf("%s%s%s\n", cursor, branch, current))
+	}
+	
+	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n\n")
+	
+	// Instructions
+	s.WriteString("🔧 Controls:\n")
+	s.WriteString("• ↑↓/k j = Navigate branches\n")
+	s.WriteString("• ENTER = Select branch and reload commits\n")
+	s.WriteString("• r = Refresh branch list\n")
+	s.WriteString("• ESC = Cancel and go back\n\n")
+	
+	s.WriteString("💡 Tip: Selecting a new branch will reload the commit list and clear current selections.\n")
+	
+	return s.String()
+}
+
 // getStatusLine returns current status information
 func (cp *CherryPicker) getStatusLine() string {
 	var status []string
@@ -474,6 +580,10 @@ func (cp *CherryPicker) getStatusLine() string {
 	
 	if cp.previewMode {
 		status = append(status, "📖 Preview Mode")
+	}
+	
+	if cp.branchMode {
+		status = append(status, fmt.Sprintf("🌿 Branch Selection (%s)", cp.branchSwitchType))
 	}
 	
 	if cp.rangeSelection {
@@ -549,6 +659,8 @@ func (cp *CherryPicker) getControlsDisplay() string {
 		// Search & View Options
 		controls = append(controls, "/f=SEARCH")
 		controls = append(controls, "p/TAB=PREVIEW")
+		controls = append(controls, "b=TARGET BRANCH")
+		controls = append(controls, "B=SOURCE BRANCH")
 		controls = append(controls, "d=detail view")
 		controls = append(controls, "R=REVERSE ORDER")
 		

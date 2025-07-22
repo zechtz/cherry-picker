@@ -438,6 +438,58 @@ func (cp *CherryPicker) skipConflictResolution() error {
 	return exec.Command("git", "cherry-pick", "--skip").Run()
 }
 
+// getAvailableBranches returns a list of available branches for switching
+func (cp *CherryPicker) getAvailableBranches() ([]string, error) {
+	var branches []string
+	
+	// Get local branches
+	localOutput, err := exec.Command("git", "branch", "--format=%(refname:short)").Output()
+	if err != nil {
+		return nil, err
+	}
+	
+	localBranches := strings.Split(strings.TrimSpace(string(localOutput)), "\n")
+	for _, branch := range localBranches {
+		branch = strings.TrimSpace(branch)
+		if branch != "" && branch != cp.currentBranch {
+			branches = append(branches, branch)
+		}
+	}
+	
+	// Get remote branches if remote exists
+	if output, err := exec.Command("git", "remote").Output(); err == nil {
+		remotes := strings.TrimSpace(string(output))
+		if strings.Contains(remotes, cp.config.Git.Remote) {
+			remoteOutput, err := exec.Command("git", "branch", "-r", "--format=%(refname:short)").Output()
+			if err == nil {
+				remoteBranches := strings.Split(strings.TrimSpace(string(remoteOutput)), "\n")
+				for _, branch := range remoteBranches {
+					branch = strings.TrimSpace(branch)
+					if branch != "" && !strings.Contains(branch, "HEAD") {
+						// Add remote branches, removing remote prefix for display
+						if strings.HasPrefix(branch, cp.config.Git.Remote+"/") {
+							localName := strings.TrimPrefix(branch, cp.config.Git.Remote+"/")
+							// Only add if we don't already have this local branch
+							found := false
+							for _, existing := range branches {
+								if existing == localName {
+									found = true
+									break
+								}
+							}
+							if !found && localName != cp.currentBranch {
+								branches = append(branches, localName)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return branches, nil
+}
+
 // resolveConflicts provides options for conflict resolution
 func (cp *CherryPicker) resolveConflicts() error {
 	fmt.Println("🔧 Conflict resolution options:")
