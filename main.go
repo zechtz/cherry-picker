@@ -80,9 +80,12 @@ func (cp *CherryPicker) View() string {
 	for i, commit := range cp.commits {
 		cursor := "  "
 		checkbox := "[ ]"
+		commitText := commit.Full
 
 		if cp.selected[commit.SHA] {
 			checkbox = "[✓]"
+			// Add strikethrough to selected commits
+			commitText = "\033[9m" + commit.Full + "\033[0m"
 		}
 
 		if i == cp.currentIndex {
@@ -97,7 +100,7 @@ func (cp *CherryPicker) View() string {
 			}
 		}
 
-		s.WriteString(fmt.Sprintf("%s%s %s\n", cursor, checkbox, commit.Full))
+		s.WriteString(fmt.Sprintf("%s%s %s\n", cursor, checkbox, commitText))
 	}
 
 	s.WriteString("\n")
