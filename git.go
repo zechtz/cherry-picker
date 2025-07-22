@@ -500,6 +500,67 @@ func (cp *CherryPicker) normalizePatch(patch string) string {
 	return strings.Join(normalizedLines, "\n")
 }
 
+// getCommitDiff returns the full diff for a commit
+func (cp *CherryPicker) getCommitDiff(sha string) (string, error) {
+	output, err := exec.Command("git", "show", "--format=fuller", "--stat", "--patch", sha).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// getCommitStats returns detailed statistics for a commit
+func (cp *CherryPicker) getCommitStats(sha string) (string, error) {
+	// Get numstat (numerical stats)
+	numstatOutput, err := exec.Command("git", "show", "--numstat", "--format=", sha).Output()
+	if err != nil {
+		return "", err
+	}
+	
+	// Get shortstat (summary)
+	shortstatOutput, err := exec.Command("git", "show", "--shortstat", "--format=", sha).Output()
+	if err != nil {
+		return "", err
+	}
+	
+	var stats strings.Builder
+	
+	// Add summary stats
+	shortstat := strings.TrimSpace(string(shortstatOutput))
+	if shortstat != "" {
+		stats.WriteString("📊 Summary: " + shortstat + "\n\n")
+	}
+	
+	// Parse and display detailed file stats
+	numstatLines := strings.Split(strings.TrimSpace(string(numstatOutput)), "\n")
+	if len(numstatLines) > 0 && numstatLines[0] != "" {
+		stats.WriteString("📁 File changes:\n")
+		for _, line := range numstatLines {
+			if line == "" {
+				continue
+			}
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				additions := parts[0]
+				deletions := parts[1]
+				filename := parts[2]
+				
+				// Handle binary files
+				if additions == "-" {
+					additions = "?"
+				}
+				if deletions == "-" {
+					deletions = "?"
+				}
+				
+				stats.WriteString(fmt.Sprintf("  %s: +%s -%s\n", filename, additions, deletions))
+			}
+		}
+	}
+	
+	return stats.String(), nil
+}
+
 func (cp *CherryPicker) cherryPick(shas []string) error {
 	targetBranch := cp.config.Git.TargetBranch
 	remote := cp.config.Git.Remote

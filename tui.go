@@ -23,28 +23,39 @@ func (cp *CherryPicker) tickCmd() tea.Cmd {
 func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle search mode input differently
+		if cp.searchMode {
+			return cp.handleSearchInput(msg)
+		}
+		
 		switch msg.String() {
 		case "ctrl+c", "q":
 			cp.quitting = true
 			return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
 		case "enter", " ":
-			if len(cp.commits) > 0 {
-				commit := cp.commits[cp.currentIndex]
-				// Don't allow selection of already applied commits
-				if !commit.AlreadyApplied {
-					cp.selected[commit.SHA] = !cp.selected[commit.SHA]
-				}
+			commit := cp.getCurrentCommit()
+			if commit != nil && !commit.AlreadyApplied {
+				cp.selected[commit.SHA] = !cp.selected[commit.SHA]
 			}
 		case "down", "j", "n":
-			if cp.currentIndex < len(cp.commits)-1 {
+			maxIndex := cp.getMaxIndex()
+			if cp.currentIndex < maxIndex {
 				cp.currentIndex++
 				cp.updateRangeEnd()
+				cp.updatePreview()
 			}
-		case "up", "k", "p":
+		case "up", "k":
 			if cp.currentIndex > 0 {
 				cp.currentIndex--
 				cp.updateRangeEnd()
+				cp.updatePreview()
 			}
+		case "/", "f":
+			// Enter search mode
+			cp.toggleSearchMode()
+		case "p", "tab":
+			// Toggle preview mode
+			cp.togglePreviewMode()
 		case "r":
 			// Toggle range selection mode
 			cp.toggleRangeSelection()
@@ -55,8 +66,9 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle detail view
 			cp.detailView = !cp.detailView
 		case "a":
-			// Select all commits (except already applied ones)
-			for _, commit := range cp.commits {
+			// Select all visible commits (except already applied ones)
+			visibleCommits := cp.getVisibleCommits()
+			for _, commit := range visibleCommits {
 				if !commit.AlreadyApplied {
 					cp.selected[commit.SHA] = true
 				}
@@ -91,17 +103,91 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return cp, nil
 }
 
+// handleSearchInput handles keyboard input when in search mode
+func (cp *CherryPicker) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		cp.quitting = true
+		return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
+	case "esc":
+		// Exit search mode
+		cp.toggleSearchMode()
+	case "enter":
+		// Exit search mode and keep current filter
+		cp.searchMode = false
+		if len(cp.filteredCommits) == 0 {
+			// If no results, reset to show all commits
+			cp.filteredCommits = nil
+		}
+	case "backspace":
+		// Remove last character from search query
+		if len(cp.searchQuery) > 0 {
+			cp.searchQuery = cp.searchQuery[:len(cp.searchQuery)-1]
+			cp.updateSearchResults()
+		}
+	case "down", "j":
+		// Navigate down in search results
+		maxIndex := cp.getMaxIndex()
+		if cp.currentIndex < maxIndex {
+			cp.currentIndex++
+			cp.updatePreview()
+		}
+	case "up", "k":
+		// Navigate up in search results
+		if cp.currentIndex > 0 {
+			cp.currentIndex--
+			cp.updatePreview()
+		}
+	case " ":
+		// Toggle selection of current commit in search mode
+		commit := cp.getCurrentCommit()
+		if commit != nil && !commit.AlreadyApplied {
+			cp.selected[commit.SHA] = !cp.selected[commit.SHA]
+		}
+	default:
+		// Add character to search query
+		if len(msg.String()) == 1 {
+			cp.searchQuery += msg.String()
+			cp.updateSearchResults()
+		}
+	}
+	return cp, nil
+}
+
 func (cp *CherryPicker) View() string {
 	if cp.quitting {
 		return ""
 	}
 
+	if cp.previewMode {
+		return cp.renderPreviewView()
+	}
+
 	var s strings.Builder
 
 	s.WriteString("📝 Cherry Pick Commits\n\n")
-	s.WriteString("Available commits:\n")
+	
+	// Show search interface if in search mode
+	if cp.searchMode {
+		s.WriteString("🔍 Search: " + cp.searchQuery + "█\n")
+		s.WriteString("(ESC=exit search, ENTER=keep filter, ↑↓=navigate, SPACE=toggle)\n\n")
+		if len(cp.filteredCommits) == 0 && cp.searchQuery != "" {
+			s.WriteString("No commits match your search.\n")
+			return s.String()
+		}
+	}
+	
+	// Show appropriate title
+	if cp.searchMode && cp.searchQuery != "" {
+		s.WriteString(fmt.Sprintf("Filtered commits (%d results):\n", len(cp.filteredCommits)))
+	} else {
+		s.WriteString("Available commits:\n")
+	}
 
-	for i, commit := range cp.commits {
+	// Get commits to display (filtered or all)
+	visibleCommits := cp.getVisibleCommits()
+	
+	for i, commit := range visibleCommits {
 		cursor := "  "
 		checkbox := "[ ]"
 		commitText := commit.Full
@@ -182,9 +268,96 @@ func (cp *CherryPicker) View() string {
 	return s.String()
 }
 
+// renderPreviewView renders the commit preview interface
+func (cp *CherryPicker) renderPreviewView() string {
+	var s strings.Builder
+	
+	s.WriteString("📖 Commit Preview\n")
+	s.WriteString("═══════════════════════════════════════════════════════════════════════════════\n\n")
+	
+	if cp.previewCommit == nil {
+		s.WriteString("No commit selected for preview.\n")
+		s.WriteString("\nPress 'p' or TAB to exit preview mode.")
+		return s.String()
+	}
+	
+	commit := cp.previewCommit
+	
+	// Header with commit info
+	s.WriteString(fmt.Sprintf("🏷️  %s", commit.SHA))
+	if commit.AlreadyApplied {
+		s.WriteString(" ✗ ALREADY APPLIED")
+	}
+	if commit.IsMerge {
+		s.WriteString(" 🔀 MERGE")
+	}
+	s.WriteString("\n\n")
+	
+	// Commit message
+	s.WriteString("📝 Message:\n")
+	s.WriteString(commit.Message + "\n\n")
+	
+	// Metadata
+	if !commit.Date.IsZero() {
+		s.WriteString(fmt.Sprintf("📅 Date: %s\n", commit.Date.Format("2006-01-02 15:04:05")))
+	}
+	if commit.Author != "" {
+		s.WriteString(fmt.Sprintf("👤 Author: %s\n", commit.Author))
+	}
+	s.WriteString("\n")
+	
+	// Statistics
+	if cp.previewStats != "" {
+		s.WriteString(cp.previewStats)
+		s.WriteString("\n")
+	}
+	
+	// Diff preview (truncated)
+	if cp.previewDiff != "" {
+		s.WriteString("🔍 Diff Preview:\n")
+		s.WriteString("───────────────────────────────────────────────────────────────────────────────\n")
+		
+		// Truncate diff if too long
+		diffLines := strings.Split(cp.previewDiff, "\n")
+		maxLines := 20 // Show first 20 lines of diff
+		
+		for i, line := range diffLines {
+			if i >= maxLines {
+				s.WriteString(fmt.Sprintf("... (%d more lines) ...\n", len(diffLines)-maxLines))
+				break
+			}
+			
+			// Add color coding for diff lines
+			if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+				s.WriteString("\033[32m" + line + "\033[0m\n") // Green for additions
+			} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+				s.WriteString("\033[31m" + line + "\033[0m\n") // Red for deletions
+			} else if strings.HasPrefix(line, "@@") {
+				s.WriteString("\033[36m" + line + "\033[0m\n") // Cyan for hunk headers
+			} else {
+				s.WriteString(line + "\n")
+			}
+		}
+		s.WriteString("───────────────────────────────────────────────────────────────────────────────\n\n")
+	}
+	
+	// Controls
+	s.WriteString("Controls: p/TAB=exit preview, ↑↓=navigate commits, SPACE=toggle selection, q=quit\n")
+	
+	return s.String()
+}
+
 // getStatusLine returns current status information
 func (cp *CherryPicker) getStatusLine() string {
 	var status []string
+	
+	if cp.searchMode {
+		status = append(status, "🔍 Search Mode")
+	}
+	
+	if cp.previewMode {
+		status = append(status, "📖 Preview Mode")
+	}
 	
 	if cp.rangeSelection {
 		status = append(status, "📍 Range Selection Mode")
@@ -234,21 +407,34 @@ func (cp *CherryPicker) getStatusLine() string {
 func (cp *CherryPicker) getControlsDisplay() string {
 	var controls []string
 	
-	// Navigation & Selection
-	controls = append(controls, "↑↓/k j=navigate")
-	controls = append(controls, "ENTER/SPACE=toggle")
-	controls = append(controls, "r=range select")
-	controls = append(controls, "a=select all")
-	controls = append(controls, "c=clear all")
-	
-	// View Options
-	controls = append(controls, "d=detail view")
-	controls = append(controls, "R=REVERSE ORDER")
-	
-	// Actions
-	controls = append(controls, "e/x=execute cherry-pick")
-	controls = append(controls, "i=interactive rebase")
-	controls = append(controls, "q=quit")
+	if cp.searchMode {
+		// Search mode controls
+		controls = append(controls, "type=search")
+		controls = append(controls, "ESC=exit search")
+		controls = append(controls, "ENTER=keep filter")
+		controls = append(controls, "↑↓=navigate")
+		controls = append(controls, "SPACE=toggle")
+		controls = append(controls, "BACKSPACE=delete")
+	} else {
+		// Normal mode controls
+		// Navigation & Selection
+		controls = append(controls, "↑↓/k j=navigate")
+		controls = append(controls, "ENTER/SPACE=toggle")
+		controls = append(controls, "r=range select")
+		controls = append(controls, "a=select all")
+		controls = append(controls, "c=clear all")
+		
+		// Search & View Options
+		controls = append(controls, "/f=SEARCH")
+		controls = append(controls, "p/TAB=PREVIEW")
+		controls = append(controls, "d=detail view")
+		controls = append(controls, "R=REVERSE ORDER")
+		
+		// Actions
+		controls = append(controls, "e/x=execute cherry-pick")
+		controls = append(controls, "i=interactive rebase")
+		controls = append(controls, "q=quit")
+	}
 	
 	return "Controls: " + strings.Join(controls, ", ")
 }

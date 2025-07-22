@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type Commit struct {
 	SHA           string
@@ -34,6 +37,13 @@ type CherryPicker struct {
 	conflictCommit   string
 	rebaseRequested  bool
 	executeRequested bool
+	searchMode       bool
+	searchQuery      string
+	filteredCommits  []int  // indices of commits that match search
+	previewMode      bool
+	previewCommit    *Commit
+	previewDiff      string
+	previewStats     string
 }
 
 type tickMsg time.Time
@@ -136,4 +146,168 @@ func (cp *CherryPicker) toggleCommitOrder() {
 	
 	// Toggle the reverse flag to track current state
 	cp.reverse = !cp.reverse
+}
+
+// toggleSearchMode enters or exits search mode
+func (cp *CherryPicker) toggleSearchMode() {
+	if !cp.searchMode {
+		// Enter search mode
+		cp.searchMode = true
+		cp.searchQuery = ""
+		cp.updateSearchResults()
+	} else {
+		// Exit search mode
+		cp.searchMode = false
+		cp.searchQuery = ""
+		cp.filteredCommits = nil
+		// Reset cursor to a valid position
+		if cp.currentIndex >= len(cp.commits) {
+			cp.currentIndex = len(cp.commits) - 1
+		}
+		if cp.currentIndex < 0 {
+			cp.currentIndex = 0
+		}
+	}
+}
+
+// updateSearchResults filters commits based on search query
+func (cp *CherryPicker) updateSearchResults() {
+	cp.filteredCommits = nil
+	
+	if cp.searchQuery == "" {
+		// Empty search shows all commits
+		for i := range cp.commits {
+			cp.filteredCommits = append(cp.filteredCommits, i)
+		}
+	} else {
+		// Filter commits based on fuzzy matching
+		query := strings.ToLower(cp.searchQuery)
+		for i, commit := range cp.commits {
+			if cp.commitMatchesSearch(commit, query) {
+				cp.filteredCommits = append(cp.filteredCommits, i)
+			}
+		}
+	}
+	
+	// Reset cursor to first filtered result
+	cp.currentIndex = 0
+}
+
+// commitMatchesSearch checks if a commit matches the search query
+func (cp *CherryPicker) commitMatchesSearch(commit Commit, query string) bool {
+	// Search in commit message
+	if strings.Contains(strings.ToLower(commit.Message), query) {
+		return true
+	}
+	
+	// Search in full commit line
+	if strings.Contains(strings.ToLower(commit.Full), query) {
+		return true
+	}
+	
+	// Search in SHA
+	if strings.Contains(strings.ToLower(commit.SHA), query) {
+		return true
+	}
+	
+	// Search in author name
+	if strings.Contains(strings.ToLower(commit.Author), query) {
+		return true
+	}
+	
+	// Search in changed files
+	for _, file := range commit.FilesChanged {
+		if strings.Contains(strings.ToLower(file), query) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// getVisibleCommits returns the commits that should be displayed (filtered or all)
+func (cp *CherryPicker) getVisibleCommits() []Commit {
+	if !cp.searchMode || len(cp.filteredCommits) == 0 {
+		return cp.commits
+	}
+	
+	var visible []Commit
+	for _, index := range cp.filteredCommits {
+		if index < len(cp.commits) {
+			visible = append(visible, cp.commits[index])
+		}
+	}
+	return visible
+}
+
+// getCurrentCommit returns the currently selected commit (accounting for search filter)
+func (cp *CherryPicker) getCurrentCommit() *Commit {
+	if cp.searchMode && len(cp.filteredCommits) > 0 {
+		if cp.currentIndex < len(cp.filteredCommits) {
+			realIndex := cp.filteredCommits[cp.currentIndex]
+			if realIndex < len(cp.commits) {
+				return &cp.commits[realIndex]
+			}
+		}
+	} else {
+		if cp.currentIndex < len(cp.commits) {
+			return &cp.commits[cp.currentIndex]
+		}
+	}
+	return nil
+}
+
+// getMaxIndex returns the maximum valid index for navigation
+func (cp *CherryPicker) getMaxIndex() int {
+	if cp.searchMode {
+		return len(cp.filteredCommits) - 1
+	}
+	return len(cp.commits) - 1
+}
+
+// togglePreviewMode enters or exits preview mode for the current commit
+func (cp *CherryPicker) togglePreviewMode() {
+	if !cp.previewMode {
+		// Enter preview mode
+		cp.previewMode = true
+		commit := cp.getCurrentCommit()
+		if commit != nil {
+			cp.loadPreviewData(commit)
+		}
+	} else {
+		// Exit preview mode
+		cp.previewMode = false
+		cp.previewCommit = nil
+		cp.previewDiff = ""
+		cp.previewStats = ""
+	}
+}
+
+// loadPreviewData fetches detailed information for the given commit
+func (cp *CherryPicker) loadPreviewData(commit *Commit) {
+	cp.previewCommit = commit
+	
+	// Get the full diff
+	if diff, err := cp.getCommitDiff(commit.SHA); err == nil {
+		cp.previewDiff = diff
+	} else {
+		cp.previewDiff = "Error loading diff: " + err.Error()
+	}
+	
+	// Get detailed stats
+	if stats, err := cp.getCommitStats(commit.SHA); err == nil {
+		cp.previewStats = stats
+	} else {
+		cp.previewStats = "Error loading stats: " + err.Error()
+	}
+}
+
+// updatePreview updates the preview when cursor moves to a different commit
+func (cp *CherryPicker) updatePreview() {
+	if cp.previewMode {
+		commit := cp.getCurrentCommit()
+		if commit != nil && (cp.previewCommit == nil || cp.previewCommit.SHA != commit.SHA) {
+			cp.loadPreviewData(commit)
+		}
+	}
 }
