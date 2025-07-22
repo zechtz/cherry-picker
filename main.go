@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,6 +25,7 @@ type CherryPicker struct {
 	currentIndex  int
 	quitting      bool
 	cursorBlink   bool
+	reverse       bool
 }
 
 type tickMsg time.Time
@@ -127,9 +129,14 @@ func (cp *CherryPicker) getSelectedCommitsDisplay() string {
 }
 
 func main() {
+	var reverse bool
+	flag.BoolVar(&reverse, "reverse", false, "display commits in reverse order")
+	flag.Parse()
+
 	cp := &CherryPicker{
 		selected:    make(map[string]bool),
 		cursorBlink: true,
+		reverse:     reverse,
 	}
 
 	if err := cp.setup(); err != nil {
@@ -259,6 +266,13 @@ func (cp *CherryPicker) getUniqueCommits() error {
 				Message: parts[1],
 				Full:    line,
 			})
+		}
+	}
+
+	// Reverse the commits if the reverse flag is set
+	if cp.reverse {
+		for i, j := 0, len(cp.commits)-1; i < j; i, j = i+1, j-1 {
+			cp.commits[i], cp.commits[j] = cp.commits[j], cp.commits[i]
 		}
 	}
 
