@@ -234,25 +234,21 @@ func (cp *CherryPicker) getStatusLine() string {
 func (cp *CherryPicker) getControlsDisplay() string {
 	var controls []string
 	
-	// Basic controls
-	controls = append(controls, "ENTER/SPACE=toggle")
+	// Navigation & Selection
 	controls = append(controls, "↑↓/k j=navigate")
-	
-	// Action controls
-	controls = append(controls, "e/x=execute cherry-pick")
-	controls = append(controls, "i=interactive rebase")
-	
-	// Selection controls
+	controls = append(controls, "ENTER/SPACE=toggle")
 	controls = append(controls, "r=range select")
 	controls = append(controls, "a=select all")
 	controls = append(controls, "c=clear all")
 	
-	// View controls
+	// View Options
 	controls = append(controls, "d=detail view")
-	controls = append(controls, "R=reverse order")
+	controls = append(controls, "R=REVERSE ORDER")
 	
-	// System controls
-	controls = append(controls, "q=quit without action")
+	// Actions
+	controls = append(controls, "e/x=execute cherry-pick")
+	controls = append(controls, "i=interactive rebase")
+	controls = append(controls, "q=quit")
 	
 	return "Controls: " + strings.Join(controls, ", ")
 }
