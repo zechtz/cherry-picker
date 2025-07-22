@@ -112,3 +112,28 @@ func (cp *CherryPicker) isInRange(index int) bool {
 	
 	return index >= start && index <= end
 }
+
+// toggleCommitOrder reverses the order of commits and adjusts the current index
+func (cp *CherryPicker) toggleCommitOrder() {
+	// Reverse the commits slice
+	for i, j := 0, len(cp.commits)-1; i < j; i, j = i+1, j-1 {
+		cp.commits[i], cp.commits[j] = cp.commits[j], cp.commits[i]
+	}
+	
+	// Adjust current index to maintain position relative to the currently selected commit
+	cp.currentIndex = len(cp.commits) - 1 - cp.currentIndex
+	
+	// If we're in range selection mode, we need to adjust those indices too
+	if cp.rangeSelection {
+		cp.rangeStart = len(cp.commits) - 1 - cp.rangeStart
+		cp.rangeEnd = len(cp.commits) - 1 - cp.rangeEnd
+		
+		// Ensure rangeStart is still <= rangeEnd after reversal
+		if cp.rangeStart > cp.rangeEnd {
+			cp.rangeStart, cp.rangeEnd = cp.rangeEnd, cp.rangeStart
+		}
+	}
+	
+	// Toggle the reverse flag to track current state
+	cp.reverse = !cp.reverse
+}

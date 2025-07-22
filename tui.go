@@ -48,6 +48,9 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			// Toggle range selection mode
 			cp.toggleRangeSelection()
+		case "R":
+			// Toggle reverse commit order
+			cp.toggleCommitOrder()
 		case "d":
 			// Toggle detail view
 			cp.detailView = !cp.detailView
@@ -213,6 +216,13 @@ func (cp *CherryPicker) getStatusLine() string {
 		status = append(status, fmt.Sprintf("✗ %d already applied", appliedCount))
 	}
 	
+	// Show current sort order
+	if cp.reverse {
+		status = append(status, "📅 Reverse chronological")
+	} else {
+		status = append(status, "📅 Chronological")
+	}
+	
 	if len(status) == 0 {
 		return "Status: Ready"
 	}
@@ -239,6 +249,7 @@ func (cp *CherryPicker) getControlsDisplay() string {
 	
 	// View controls
 	controls = append(controls, "d=detail view")
+	controls = append(controls, "R=reverse order")
 	
 	// System controls
 	controls = append(controls, "q=quit without action")
