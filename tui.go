@@ -121,52 +121,61 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleSearchInput handles keyboard input when in search mode
 func (cp *CherryPicker) handleSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
+	// Handle special keys first (control keys that shouldn't be added to search)
+	switch msg.Type {
+	case tea.KeyCtrlC:
 		cp.quitting = true
 		return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
-	case "esc":
+	case tea.KeyEsc:
 		// Exit search mode
 		cp.toggleSearchMode()
-	case "enter":
+		return cp, nil
+	case tea.KeyEnter:
 		// Exit search mode and keep current filter
 		cp.searchMode = false
 		if len(cp.filteredCommits) == 0 {
 			// If no results, reset to show all commits
 			cp.filteredCommits = nil
 		}
-	case "backspace":
+		return cp, nil
+	case tea.KeyBackspace:
 		// Remove last character from search query
 		if len(cp.searchQuery) > 0 {
 			cp.searchQuery = cp.searchQuery[:len(cp.searchQuery)-1]
 			cp.updateSearchResults()
 		}
-	case "down", "j":
-		// Navigate down in search results
+		return cp, nil
+	case tea.KeyUp:
+		// Navigate up in search results (only arrow keys, not 'k')
+		if cp.currentIndex > 0 {
+			cp.currentIndex--
+			cp.updatePreview()
+		}
+		return cp, nil
+	case tea.KeyDown:
+		// Navigate down in search results (only arrow keys, not 'j')
 		maxIndex := cp.getMaxIndex()
 		if cp.currentIndex < maxIndex {
 			cp.currentIndex++
 			cp.updatePreview()
 		}
-	case "up", "k":
-		// Navigate up in search results
-		if cp.currentIndex > 0 {
-			cp.currentIndex--
-			cp.updatePreview()
-		}
-	case " ":
-		// Toggle selection of current commit in search mode
+		return cp, nil
+	case tea.KeyTab:
+		// Toggle selection of current commit in search mode (use TAB instead of SPACE)
 		commit := cp.getCurrentCommit()
 		if commit != nil && !commit.AlreadyApplied {
 			cp.selected[commit.SHA] = !cp.selected[commit.SHA]
 		}
-	default:
-		// Add character to search query
-		if len(msg.String()) == 1 {
-			cp.searchQuery += msg.String()
-			cp.updateSearchResults()
-		}
+		return cp, nil
 	}
+	
+	// Handle regular character input - prioritize text input over everything else
+	if len(msg.String()) == 1 && msg.String() >= " " && msg.String() <= "~" {
+		// Add any printable ASCII character to search query
+		cp.searchQuery += msg.String()
+		cp.updateSearchResults()
+	}
+	
 	return cp, nil
 }
 
@@ -194,7 +203,7 @@ func (cp *CherryPicker) View() string {
 	// Show search interface if in search mode
 	if cp.searchMode {
 		s.WriteString("🔍 Search: " + cp.searchQuery + "█\n")
-		s.WriteString("(ESC=exit search, ENTER=keep filter, ↑↓=navigate, SPACE=toggle)\n\n")
+		s.WriteString("(ESC=exit search, ENTER=keep filter, ↑↓=navigate, TAB=toggle)\n\n")
 		if len(cp.filteredCommits) == 0 && cp.searchQuery != "" {
 			s.WriteString("No commits match your search.\n")
 			return s.String()
@@ -645,7 +654,7 @@ func (cp *CherryPicker) getControlsDisplay() string {
 		controls = append(controls, "ESC=exit search")
 		controls = append(controls, "ENTER=keep filter")
 		controls = append(controls, "↑↓=navigate")
-		controls = append(controls, "SPACE=toggle")
+		controls = append(controls, "TAB=toggle")
 		controls = append(controls, "BACKSPACE=delete")
 	} else {
 		// Normal mode controls
