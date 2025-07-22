@@ -255,9 +255,8 @@ func (cp *CherryPicker) cherryPickWithConflictHandling(shas []string) error {
 			// Check if it's a conflict
 			if cp.hasConflicts() {
 				fmt.Printf("⚠️  Conflict detected in commit %s\n", sha)
-				cp.conflictMode = true
-				cp.conflictCommit = sha
-				return fmt.Errorf("conflict in commit %s - resolve conflicts and continue", sha)
+				cp.enterConflictMode(sha)
+				return fmt.Errorf("conflict in commit %s - use conflict resolution interface", sha)
 			}
 			return fmt.Errorf("cherry-pick failed for %s: %v", sha, err)
 		}
@@ -290,11 +289,153 @@ func (cp *CherryPicker) hasConflicts() bool {
 	
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
-		if strings.HasPrefix(line, "UU ") || strings.HasPrefix(line, "AA ") {
+		if strings.HasPrefix(line, "UU ") || strings.HasPrefix(line, "AA ") || 
+		   strings.HasPrefix(line, "DD ") || strings.HasPrefix(line, "AU ") ||
+		   strings.HasPrefix(line, "UA ") || strings.HasPrefix(line, "DU ") ||
+		   strings.HasPrefix(line, "UD ") {
 			return true
 		}
 	}
 	return false
+}
+
+// getConflictedFiles returns detailed information about conflicted files
+func (cp *CherryPicker) getConflictedFiles() ([]ConflictFile, error) {
+	output, err := exec.Command("git", "status", "--porcelain").Output()
+	if err != nil {
+		return nil, err
+	}
+	
+	var conflicts []ConflictFile
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	
+	for _, line := range lines {
+		if len(line) < 3 {
+			continue
+		}
+		
+		status := line[:2]
+		path := strings.TrimSpace(line[3:])
+		
+		if cp.isConflictStatus(status) {
+			conflict := ConflictFile{
+				Path:        path,
+				Status:      status,
+				Description: cp.getConflictDescription(status),
+			}
+			
+			// Check if file has conflict markers
+			if hasMarkers, err := cp.hasConflictMarkers(path); err == nil {
+				conflict.HasConflicts = hasMarkers
+			}
+			
+			conflicts = append(conflicts, conflict)
+		}
+	}
+	
+	return conflicts, nil
+}
+
+// isConflictStatus checks if a git status indicates a conflict
+func (cp *CherryPicker) isConflictStatus(status string) bool {
+	conflictStatuses := []string{"UU", "AA", "DD", "AU", "UA", "DU", "UD"}
+	for _, cs := range conflictStatuses {
+		if status == cs {
+			return true
+		}
+	}
+	return false
+}
+
+// getConflictDescription returns a human-readable description of the conflict type
+func (cp *CherryPicker) getConflictDescription(status string) string {
+	switch status {
+	case "UU":
+		return "Both modified (merge conflict)"
+	case "AA":
+		return "Both added (merge conflict)"
+	case "DD":
+		return "Both deleted"
+	case "AU":
+		return "Added by us, modified by them"
+	case "UA":
+		return "Modified by us, added by them"
+	case "DU":
+		return "Deleted by us, modified by them"
+	case "UD":
+		return "Modified by us, deleted by them"
+	default:
+		return "Unknown conflict type"
+	}
+}
+
+// hasConflictMarkers checks if a file contains git conflict markers
+func (cp *CherryPicker) hasConflictMarkers(path string) (bool, error) {
+	content, err := exec.Command("cat", path).Output()
+	if err != nil {
+		return false, err
+	}
+	
+	text := string(content)
+	return strings.Contains(text, "<<<<<<<") || 
+		   strings.Contains(text, "=======") || 
+		   strings.Contains(text, ">>>>>>>"), nil
+}
+
+// resolveConflictWithStrategy applies a resolution strategy to a conflict
+func (cp *CherryPicker) resolveConflictWithStrategy(filePath, strategy string) error {
+	switch strategy {
+	case "ours":
+		// Use our version
+		return exec.Command("git", "checkout", "--ours", filePath).Run()
+	case "theirs":
+		// Use their version
+		return exec.Command("git", "checkout", "--theirs", filePath).Run()
+	case "merge":
+		// Open merge tool
+		cmd := exec.Command("git", "mergetool", filePath)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case "edit":
+		// Open in editor
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "nano" // fallback
+		}
+		cmd := exec.Command(editor, filePath)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case "add":
+		// Mark as resolved
+		return exec.Command("git", "add", filePath).Run()
+	default:
+		return fmt.Errorf("unknown resolution strategy: %s", strategy)
+	}
+}
+
+// continueConflictResolution continues the cherry-pick after conflicts are resolved
+func (cp *CherryPicker) continueConflictResolution() error {
+	// Check if all conflicts are resolved
+	if cp.hasConflicts() {
+		return fmt.Errorf("there are still unresolved conflicts")
+	}
+	
+	// Continue the cherry-pick
+	return exec.Command("git", "cherry-pick", "--continue").Run()
+}
+
+// abortConflictResolution aborts the current cherry-pick
+func (cp *CherryPicker) abortConflictResolution() error {
+	return exec.Command("git", "cherry-pick", "--abort").Run()
+}
+
+// skipConflictResolution skips the current commit
+func (cp *CherryPicker) skipConflictResolution() error {
+	return exec.Command("git", "cherry-pick", "--skip").Run()
 }
 
 // resolveConflicts provides options for conflict resolution

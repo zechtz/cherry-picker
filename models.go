@@ -19,6 +19,13 @@ type Commit struct {
 	AlreadyApplied bool
 }
 
+type ConflictFile struct {
+	Path         string
+	Status       string // "UU", "AA", "DD", etc.
+	Description  string // Human-readable conflict type
+	HasConflicts bool   // Whether file has conflict markers
+}
+
 type CherryPicker struct {
 	currentBranch    string
 	authorName       string
@@ -35,6 +42,8 @@ type CherryPicker struct {
 	rangeEnd         int
 	conflictMode     bool
 	conflictCommit   string
+	conflictFiles    []ConflictFile
+	conflictResolved bool
 	rebaseRequested  bool
 	executeRequested bool
 	searchMode       bool
@@ -309,5 +318,38 @@ func (cp *CherryPicker) updatePreview() {
 		if commit != nil && (cp.previewCommit == nil || cp.previewCommit.SHA != commit.SHA) {
 			cp.loadPreviewData(commit)
 		}
+	}
+}
+
+// enterConflictMode sets up conflict resolution state
+func (cp *CherryPicker) enterConflictMode(commit string) {
+	cp.conflictMode = true
+	cp.conflictCommit = commit
+	cp.conflictResolved = false
+	cp.loadConflictFiles()
+}
+
+// exitConflictMode clears conflict resolution state
+func (cp *CherryPicker) exitConflictMode() {
+	cp.conflictMode = false
+	cp.conflictCommit = ""
+	cp.conflictFiles = nil
+	cp.conflictResolved = false
+}
+
+// loadConflictFiles detects and loads information about conflicted files
+func (cp *CherryPicker) loadConflictFiles() {
+	cp.conflictFiles = nil
+	
+	// This will be implemented in git.go
+	if conflicts, err := cp.getConflictedFiles(); err == nil {
+		cp.conflictFiles = conflicts
+	}
+}
+
+// toggleConflictResolution toggles the conflict resolution interface
+func (cp *CherryPicker) toggleConflictResolution() {
+	if cp.conflictMode {
+		cp.exitConflictMode()
 	}
 }

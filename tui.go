@@ -28,6 +28,11 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return cp.handleSearchInput(msg)
 		}
 		
+		// Handle conflict mode input differently
+		if cp.conflictMode {
+			return cp.handleConflictInput(msg)
+		}
+		
 		switch msg.String() {
 		case "ctrl+c", "q":
 			cp.quitting = true
@@ -161,6 +166,10 @@ func (cp *CherryPicker) View() string {
 
 	if cp.previewMode {
 		return cp.renderPreviewView()
+	}
+	
+	if cp.conflictMode {
+		return cp.renderConflictView()
 	}
 
 	var s strings.Builder
@@ -347,6 +356,114 @@ func (cp *CherryPicker) renderPreviewView() string {
 	return s.String()
 }
 
+// handleConflictInput handles keyboard input when in conflict resolution mode
+func (cp *CherryPicker) handleConflictInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		cp.quitting = true
+		return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
+	case "esc":
+		// Exit conflict mode without action
+		cp.exitConflictMode()
+	case "c":
+		// Continue cherry-pick (if all conflicts resolved)
+		if err := cp.continueConflictResolution(); err != nil {
+			// Still have conflicts, stay in conflict mode
+			cp.loadConflictFiles()
+		} else {
+			// Success, exit conflict mode
+			cp.exitConflictMode()
+		}
+	case "a":
+		// Abort cherry-pick
+		if err := cp.abortConflictResolution(); err == nil {
+			cp.exitConflictMode()
+		}
+	case "s":
+		// Skip this commit
+		if err := cp.skipConflictResolution(); err == nil {
+			cp.exitConflictMode()
+		}
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		// Select file by number for resolution
+		fileIndex := int(msg.String()[0] - '1')
+		if fileIndex < len(cp.conflictFiles) {
+			cp.showFileResolutionOptions(fileIndex)
+		}
+	case "r":
+		// Refresh conflict status
+		cp.loadConflictFiles()
+	}
+	return cp, nil
+}
+
+// showFileResolutionOptions shows resolution options for a specific file
+func (cp *CherryPicker) showFileResolutionOptions(fileIndex int) {
+	// This would typically open a sub-menu or prompt
+	// For now, we'll use a simple approach
+	file := cp.conflictFiles[fileIndex]
+	
+	// For demonstration, let's auto-resolve with "ours" strategy
+	// In a real implementation, this would show options
+	if err := cp.resolveConflictWithStrategy(file.Path, "ours"); err == nil {
+		cp.loadConflictFiles() // Refresh the conflict list
+	}
+}
+
+// renderConflictView renders the conflict resolution interface
+func (cp *CherryPicker) renderConflictView() string {
+	var s strings.Builder
+	
+	s.WriteString("⚠️  Conflict Resolution\n")
+	s.WriteString("═══════════════════════════════════════════════════════════════════════════════\n\n")
+	
+	if cp.conflictCommit != "" {
+		s.WriteString(fmt.Sprintf("🔧 Resolving conflicts for commit: %s\n\n", cp.conflictCommit))
+	}
+	
+	if len(cp.conflictFiles) == 0 {
+		s.WriteString("✅ No conflicts detected. You can continue the cherry-pick.\n\n")
+		s.WriteString("Press 'c' to continue, 'a' to abort, or 's' to skip this commit.\n")
+		return s.String()
+	}
+	
+	s.WriteString("📁 Conflicted Files:\n")
+	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n")
+	
+	for i, file := range cp.conflictFiles {
+		status := "⚡"
+		if !file.HasConflicts {
+			status = "✅"
+		}
+		
+		s.WriteString(fmt.Sprintf("%d. %s %s\n", i+1, status, file.Path))
+		s.WriteString(fmt.Sprintf("   Status: %s - %s\n", file.Status, file.Description))
+		
+		if file.HasConflicts {
+			s.WriteString("   Contains conflict markers (<<<<<<< ======= >>>>>>>)\n")
+		} else {
+			s.WriteString("   Resolved (no conflict markers)\n")
+		}
+		s.WriteString("\n")
+	}
+	
+	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n\n")
+	
+	// Resolution options
+	s.WriteString("🔧 Resolution Options:\n")
+	s.WriteString("• Press number (1-9) to resolve specific file with 'ours' strategy\n")
+	s.WriteString("• c = Continue cherry-pick (if all resolved)\n")
+	s.WriteString("• a = Abort cherry-pick\n")
+	s.WriteString("• s = Skip this commit\n")
+	s.WriteString("• r = Refresh conflict status\n")
+	s.WriteString("• ESC = Exit conflict mode\n\n")
+	
+	s.WriteString("💡 Tip: Resolve conflicts manually in your editor, then press 'r' to refresh\n")
+	s.WriteString("    and 'c' to continue when all conflicts are resolved.\n")
+	
+	return s.String()
+}
+
 // getStatusLine returns current status information
 func (cp *CherryPicker) getStatusLine() string {
 	var status []string
@@ -368,7 +485,12 @@ func (cp *CherryPicker) getStatusLine() string {
 	}
 	
 	if cp.conflictMode {
-		status = append(status, fmt.Sprintf("⚠️  Conflict in %s", cp.conflictCommit[:8]))
+		conflictCount := len(cp.conflictFiles)
+		if conflictCount > 0 {
+			status = append(status, fmt.Sprintf("⚠️  %d conflicts in %s", conflictCount, cp.conflictCommit[:8]))
+		} else {
+			status = append(status, fmt.Sprintf("⚠️  Conflict resolution for %s", cp.conflictCommit[:8]))
+		}
 	}
 	
 	// Count merge commits and already applied commits
