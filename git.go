@@ -344,6 +344,7 @@ func (cp *CherryPicker) interactiveRebase(shas []string) error {
 }
 
 // isCommitInTargetBranch checks if a commit already exists in the target branch
+// This checks both for exact SHA matches and for cherry-picked commits with same content
 func (cp *CherryPicker) isCommitInTargetBranch(sha string) bool {
 	targetBranch := cp.config.Git.TargetBranch
 	remote := cp.config.Git.Remote
@@ -363,8 +364,13 @@ func (cp *CherryPicker) isCommitInTargetBranch(sha string) bool {
 	// First try to check against remote target branch
 	if remoteBranch != "" {
 		if err := exec.Command("git", "rev-parse", "--verify", remoteBranch).Run(); err == nil {
+			// Check for exact SHA match (ancestor check)
 			cmd := exec.Command("git", "merge-base", "--is-ancestor", sha, remoteBranch)
 			if err := cmd.Run(); err == nil {
+				return true
+			}
+			// Check for cherry-picked commit with same content
+			if cp.hasEquivalentCommitInBranch(sha, remoteBranch) {
 				return true
 			}
 		}
@@ -372,13 +378,126 @@ func (cp *CherryPicker) isCommitInTargetBranch(sha string) bool {
 	
 	// Fall back to local target branch
 	if err := exec.Command("git", "rev-parse", "--verify", localBranch).Run(); err == nil {
+		// Check for exact SHA match (ancestor check)
 		cmd := exec.Command("git", "merge-base", "--is-ancestor", sha, localBranch)
 		if err := cmd.Run(); err == nil {
+			return true
+		}
+		// Check for cherry-picked commit with same content
+		if cp.hasEquivalentCommitInBranch(sha, localBranch) {
 			return true
 		}
 	}
 	
 	return false
+}
+
+// hasEquivalentCommitInBranch checks if a commit with the same patch exists in the target branch
+func (cp *CherryPicker) hasEquivalentCommitInBranch(sha, targetBranch string) bool {
+	// Get the patch content of the source commit
+	sourcePatch, err := exec.Command("git", "show", "--format=", sha).Output()
+	if err != nil {
+		return false
+	}
+	
+	// Get commit message and author info for additional matching
+	sourceInfo, err := exec.Command("git", "show", "--format=%s|%an|%ae", "--name-only", sha).Output()
+	if err != nil {
+		return false
+	}
+	
+	sourceLines := strings.Split(string(sourceInfo), "\n")
+	if len(sourceLines) < 1 {
+		return false
+	}
+	
+	sourceMeta := strings.Split(sourceLines[0], "|")
+	if len(sourceMeta) < 3 {
+		return false
+	}
+	
+	sourceSubject := sourceMeta[0]
+	sourceAuthorName := sourceMeta[1]
+	sourceAuthorEmail := sourceMeta[2]
+	
+	// Get all commits in target branch
+	targetCommits, err := exec.Command("git", "log", "--format=%H|%s|%an|%ae", targetBranch).Output()
+	if err != nil {
+		return false
+	}
+	
+	// Check each commit in target branch
+	for _, line := range strings.Split(string(targetCommits), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		parts := strings.Split(line, "|")
+		if len(parts) < 4 {
+			continue
+		}
+		
+		targetSHA := parts[0]
+		targetSubject := parts[1]
+		targetAuthorName := parts[2]
+		targetAuthorEmail := parts[3]
+		
+		// Skip if basic metadata doesn't match
+		if targetSubject != sourceSubject || 
+		   targetAuthorName != sourceAuthorName || 
+		   targetAuthorEmail != sourceAuthorEmail {
+			continue
+		}
+		
+		// Get patch content of target commit
+		targetPatch, err := exec.Command("git", "show", "--format=", targetSHA).Output()
+		if err != nil {
+			continue
+		}
+		
+		// Compare patch content (ignoring whitespace differences)
+		if cp.patchesAreEquivalent(string(sourcePatch), string(targetPatch)) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// patchesAreEquivalent compares two git patches to see if they represent the same changes
+func (cp *CherryPicker) patchesAreEquivalent(patch1, patch2 string) bool {
+	// Normalize patches by removing commit-specific headers and comparing diff content
+	patch1Normalized := cp.normalizePatch(patch1)
+	patch2Normalized := cp.normalizePatch(patch2)
+	
+	return patch1Normalized == patch2Normalized
+}
+
+// normalizePatch removes commit-specific information and normalizes diff content
+func (cp *CherryPicker) normalizePatch(patch string) string {
+	lines := strings.Split(patch, "\n")
+	var normalizedLines []string
+	
+	for _, line := range lines {
+		// Skip diff headers that contain commit-specific info
+		if strings.HasPrefix(line, "diff --git") ||
+		   strings.HasPrefix(line, "index ") ||
+		   strings.HasPrefix(line, "--- a/") ||
+		   strings.HasPrefix(line, "+++ b/") {
+			continue
+		}
+		
+		// Keep actual diff content (additions, deletions, context)
+		if strings.HasPrefix(line, "+") || 
+		   strings.HasPrefix(line, "-") || 
+		   strings.HasPrefix(line, " ") ||
+		   strings.HasPrefix(line, "@@") {
+			normalizedLines = append(normalizedLines, line)
+		}
+	}
+	
+	return strings.Join(normalizedLines, "\n")
 }
 
 func (cp *CherryPicker) cherryPick(shas []string) error {
