@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -68,9 +69,27 @@ func main() {
 			return
 		}
 
-		if err := cp.cherryPick(selectedSHAs); err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
-			os.Exit(1)
+		// Check if interactive rebase was requested
+		if cp.rebaseRequested {
+			fmt.Println("🔄 Starting interactive rebase for selected commits...")
+			if err := cp.interactiveRebase(selectedSHAs); err != nil {
+				fmt.Printf("❌ Interactive rebase failed: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("✅ Interactive rebase completed.")
+			return
+		}
+
+		if err := cp.cherryPickWithConflictHandling(selectedSHAs); err != nil {
+			if strings.Contains(err.Error(), "conflict") {
+				// Handle conflicts gracefully
+				fmt.Printf("⚠️  %v\n", err)
+				cp.resolveConflicts()
+				fmt.Println("\nRun the tool again after resolving conflicts to continue.")
+			} else {
+				fmt.Printf("❌ Error: %v\n", err)
+				os.Exit(1)
+			}
 		}
 	}
 }
