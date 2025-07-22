@@ -89,11 +89,42 @@ func (cp *CherryPicker) validateBranch() error {
 
 func (cp *CherryPicker) fetchOrigin() error {
 	fmt.Printf("🔍 Detecting unique commits in %s that are not in dev...\n", cp.currentBranch)
-	return exec.Command("git", "fetch", "origin").Run()
+	
+	// Check if origin remote exists
+	output, err := exec.Command("git", "remote").Output()
+	if err != nil {
+		fmt.Println("⚠️  No git remotes configured, working with local branches only")
+		return nil
+	}
+	
+	remotes := strings.TrimSpace(string(output))
+	if !strings.Contains(remotes, "origin") {
+		fmt.Println("⚠️  No 'origin' remote configured, working with local branches only")
+		return nil
+	}
+	
+	// Try to fetch, but don't fail if it doesn't work
+	if err := exec.Command("git", "fetch", "origin").Run(); err != nil {
+		fmt.Println("⚠️  Could not fetch from origin, working with local branches only")
+	}
+	
+	return nil
 }
 
 func (cp *CherryPicker) getUniqueCommits() error {
-	cmd := exec.Command("git", "log", "origin/dev..HEAD", "--author="+cp.authorName, "--oneline")
+	// Try origin/dev first, then fall back to dev, then compare with initial commit
+	var cmd *exec.Cmd
+	
+	// Check if origin/dev exists
+	if err := exec.Command("git", "rev-parse", "--verify", "origin/dev").Run(); err == nil {
+		cmd = exec.Command("git", "log", "origin/dev..HEAD", "--author="+cp.authorName, "--oneline")
+	} else if err := exec.Command("git", "rev-parse", "--verify", "dev").Run(); err == nil {
+		cmd = exec.Command("git", "log", "dev..HEAD", "--author="+cp.authorName, "--oneline")
+	} else {
+		// No dev branch exists, show all commits by author
+		cmd = exec.Command("git", "log", "--author="+cp.authorName, "--oneline")
+	}
+	
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get unique commits: %v", err)
