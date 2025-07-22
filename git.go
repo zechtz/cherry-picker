@@ -241,7 +241,11 @@ func (cp *CherryPicker) cherryPickWithConflictHandling(shas []string) error {
 	
 	// Cherry-pick commits one by one to handle conflicts individually
 	for i, sha := range shas {
-		fmt.Printf("Cherry-picking %s (%d/%d)...\n", sha[:8], i+1, len(shas))
+		shaDisplay := sha
+		if len(sha) > 8 {
+			shaDisplay = sha[:8]
+		}
+		fmt.Printf("Cherry-picking %s (%d/%d)...\n", shaDisplay, i+1, len(shas))
 		
 		err := exec.Command("git", "cherry-pick", sha).Run()
 		if err != nil {
