@@ -108,6 +108,9 @@ func (cp *CherryPicker) getUniqueCommits() error {
 				}
 			}
 			
+			// Check if commit already exists in target branch
+			commit.AlreadyApplied = cp.isCommitInTargetBranch(sha)
+			
 			cp.commits = append(cp.commits, commit)
 		}
 	}
@@ -338,6 +341,44 @@ func (cp *CherryPicker) interactiveRebase(shas []string) error {
 	cmd.Stderr = os.Stderr
 	
 	return cmd.Run()
+}
+
+// isCommitInTargetBranch checks if a commit already exists in the target branch
+func (cp *CherryPicker) isCommitInTargetBranch(sha string) bool {
+	targetBranch := cp.config.Git.TargetBranch
+	remote := cp.config.Git.Remote
+	
+	// Try remote/target branch first, then fall back to local target branch
+	var remoteBranch, localBranch string
+	
+	// Check if remote exists
+	if output, err := exec.Command("git", "remote").Output(); err == nil {
+		remotes := strings.TrimSpace(string(output))
+		if strings.Contains(remotes, remote) {
+			remoteBranch = remote + "/" + targetBranch
+		}
+	}
+	localBranch = targetBranch
+	
+	// First try to check against remote target branch
+	if remoteBranch != "" {
+		if err := exec.Command("git", "rev-parse", "--verify", remoteBranch).Run(); err == nil {
+			cmd := exec.Command("git", "merge-base", "--is-ancestor", sha, remoteBranch)
+			if err := cmd.Run(); err == nil {
+				return true
+			}
+		}
+	}
+	
+	// Fall back to local target branch
+	if err := exec.Command("git", "rev-parse", "--verify", localBranch).Run(); err == nil {
+		cmd := exec.Command("git", "merge-base", "--is-ancestor", sha, localBranch)
+		if err := cmd.Run(); err == nil {
+			return true
+		}
+	}
+	
+	return false
 }
 
 func (cp *CherryPicker) cherryPick(shas []string) error {

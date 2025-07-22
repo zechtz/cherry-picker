@@ -29,8 +29,11 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
 		case "enter", " ":
 			if len(cp.commits) > 0 {
-				sha := cp.commits[cp.currentIndex].SHA
-				cp.selected[sha] = !cp.selected[sha]
+				commit := cp.commits[cp.currentIndex]
+				// Don't allow selection of already applied commits
+				if !commit.AlreadyApplied {
+					cp.selected[commit.SHA] = !cp.selected[commit.SHA]
+				}
 			}
 		case "down", "j", "n":
 			if cp.currentIndex < len(cp.commits)-1 {
@@ -49,9 +52,11 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle detail view
 			cp.detailView = !cp.detailView
 		case "a":
-			// Select all commits
+			// Select all commits (except already applied ones)
 			for _, commit := range cp.commits {
-				cp.selected[commit.SHA] = true
+				if !commit.AlreadyApplied {
+					cp.selected[commit.SHA] = true
+				}
 			}
 		case "c":
 			// Clear all selections
@@ -103,7 +108,12 @@ func (cp *CherryPicker) View() string {
 			cursor = "📍"
 		}
 
-		if cp.selected[commit.SHA] {
+		// Handle already applied commits
+		if commit.AlreadyApplied {
+			checkbox = "[✗]"
+			// Add strikethrough and dim styling for already applied commits
+			commitText = "\033[9m\033[2m" + commit.Full + "\033[0m"
+		} else if cp.selected[commit.SHA] {
 			checkbox = "[✓]"
 			// Add strikethrough to selected commits
 			commitText = "\033[9m" + commit.Full + "\033[0m"
@@ -113,7 +123,9 @@ func (cp *CherryPicker) View() string {
 			cursor = "→ "
 			// Add blinking cursor inside the checkbox
 			if cp.cursorBlink {
-				if cp.selected[commit.SHA] {
+				if commit.AlreadyApplied {
+					checkbox = "[✗]" // No blinking for already applied
+				} else if cp.selected[commit.SHA] {
 					checkbox = "[█]"
 				} else {
 					checkbox = "[█]"
@@ -183,15 +195,22 @@ func (cp *CherryPicker) getStatusLine() string {
 		status = append(status, fmt.Sprintf("⚠️  Conflict in %s", cp.conflictCommit[:8]))
 	}
 	
-	// Count merge commits
+	// Count merge commits and already applied commits
 	mergeCount := 0
+	appliedCount := 0
 	for _, commit := range cp.commits {
 		if commit.IsMerge {
 			mergeCount++
 		}
+		if commit.AlreadyApplied {
+			appliedCount++
+		}
 	}
 	if mergeCount > 0 {
 		status = append(status, fmt.Sprintf("🔀 %d merge commits", mergeCount))
+	}
+	if appliedCount > 0 {
+		status = append(status, fmt.Sprintf("✗ %d already applied", appliedCount))
 	}
 	
 	if len(status) == 0 {

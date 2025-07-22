@@ -3,16 +3,17 @@ package main
 import "time"
 
 type Commit struct {
-	SHA         string
-	Message     string
-	Full        string
-	Date        time.Time
-	Author      string
-	IsMerge     bool
-	ParentCount int
-	FilesChanged []string
-	Insertions  int
-	Deletions   int
+	SHA           string
+	Message       string
+	Full          string
+	Date          time.Time
+	Author        string
+	IsMerge       bool
+	ParentCount   int
+	FilesChanged  []string
+	Insertions    int
+	Deletions     int
+	AlreadyApplied bool
 }
 
 type CherryPicker struct {
@@ -81,9 +82,11 @@ func (cp *CherryPicker) selectRange() {
 		start, end = end, start
 	}
 	
-	// Select all commits in range
+	// Select all commits in range (except already applied ones)
 	for i := start; i <= end && i < len(cp.commits); i++ {
-		cp.selected[cp.commits[i].SHA] = true
+		if !cp.commits[i].AlreadyApplied {
+			cp.selected[cp.commits[i].SHA] = true
+		}
 	}
 }
 
