@@ -200,6 +200,11 @@ func (cp *CherryPicker) View() string {
 
 	s.WriteString("📝 Cherry Pick Commits\n\n")
 	
+	// Show cherry-pick direction
+	s.WriteString(fmt.Sprintf("🌿 Cherry-picking from %s → %s\n\n", 
+		cp.config.Git.SourceBranch, 
+		cp.config.Git.TargetBranch))
+	
 	// Show search interface if in search mode
 	if cp.searchMode {
 		s.WriteString("🔍 Search: " + cp.searchQuery + "█\n")
