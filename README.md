@@ -66,20 +66,106 @@ An interactive terminal-based Git cherry-pick tool that makes selectively applyi
 ## 🚀 Installation
 
 ### Prerequisites
-- Go 1.23.0 or later
 - Git (installed and configured)
 
-### Build from Source
+### Option 1: Download Pre-built Binaries (Recommended)
+
+#### Download Latest Release
+1. Go to [Releases](https://github.com/zechtz/cherry-picker/releases)
+2. Download the binary for your platform:
+   - **Linux (x64)**: `cherry-picker-linux-amd64`
+   - **Linux (ARM64)**: `cherry-picker-linux-arm64`
+   - **macOS (Intel)**: `cherry-picker-darwin-amd64`
+   - **macOS (Apple Silicon)**: `cherry-picker-darwin-arm64`
+   - **Windows (x64)**: `cherry-picker-windows-amd64.exe`
+
+#### Install the Binary
+
+**Linux/macOS:**
+```bash
+# Download (replace with your platform)
+curl -L -o cherry-picker https://github.com/zechtz/cherry-picker/releases/latest/download/cherry-picker-linux-amd64
+
+# Make executable
+chmod +x cherry-picker
+
+# Move to PATH (optional)
+sudo mv cherry-picker /usr/local/bin/
+
+# Or use locally
+./cherry-picker
+```
+
+**Windows:**
+```powershell
+# Download using PowerShell
+Invoke-WebRequest -Uri "https://github.com/zechtz/cherry-picker/releases/latest/download/cherry-picker-windows-amd64.exe" -OutFile "cherry-picker.exe"
+
+# Run directly
+.\cherry-picker.exe
+
+# Or add to PATH and run globally
+cherry-picker
+```
+
+#### Verify Installation
+```bash
+# Check version
+cherry-picker --version
+
+# Or run in any git repository
+cd /path/to/your/git/repo
+cherry-picker
+```
+
+#### Quick Start
+```bash
+# 1. Navigate to your git repository
+cd /path/to/your/project
+
+# 2. Run cherry-picker
+cherry-picker
+
+# 3. Select source branch (where commits come from)
+# 4. Select target branch (where commits will be applied) 
+# 5. Choose commits to cherry-pick using Space/Enter
+# 6. Press 'e' to execute the cherry-pick
+```
+
+#### Security: Verify Checksums (Optional but Recommended)
+```bash
+# Download checksums file
+curl -L -o checksums.txt https://github.com/zechtz/cherry-picker/releases/latest/download/checksums.txt
+
+# Verify your downloaded binary (Linux example)
+sha256sum -c checksums.txt --ignore-missing
+# Should show: cherry-picker-linux-amd64: OK
+```
+
+### Option 2: Build from Source
+*Requires Go 1.23.0 or later*
+
 ```bash
 git clone https://github.com/zechtz/cherry-picker.git
 cd cherry-picker
 go build -o cherry-picker
+
+# Install globally (optional)
+sudo mv cherry-picker /usr/local/bin/
 ```
 
-### Install Binary
+### Option 3: Using Package Managers
+
+#### Homebrew (macOS/Linux)
 ```bash
-# Move to a directory in your PATH
-sudo mv cherry-picker /usr/local/bin/
+# Coming soon...
+brew install zechtz/tap/cherry-picker
+```
+
+#### Chocolatey (Windows)
+```bash
+# Coming soon...
+choco install cherry-picker
 ```
 
 ## 🎮 Usage
