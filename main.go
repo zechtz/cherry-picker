@@ -43,6 +43,10 @@ func main() {
 	
 	sourceBranch, targetBranch, err := RunBranchSelector()
 	if err != nil {
+		if strings.Contains(err.Error(), "cancelled") {
+			// User chose to quit - exit gracefully without error message
+			os.Exit(0)
+		}
 		fmt.Printf("❌ Error selecting branches: %v\n", err)
 		os.Exit(1)
 	}
