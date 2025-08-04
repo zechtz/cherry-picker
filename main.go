@@ -109,14 +109,24 @@ func main() {
 		return
 	}
 
-	// Execute cherry-pick (either via e/x or old q behavior for backward compatibility)
+	// Execute cherry-pick (back to original approach but with conflict handling)
 	if cp.executeRequested || (!cp.quitting) {
 		if err := cp.cherryPickWithConflictHandling(selectedSHAs); err != nil {
-			if strings.Contains(err.Error(), "conflict") {
-				// Handle conflicts gracefully
-				fmt.Printf("⚠️  %v\n", err)
-				cp.resolveConflicts()
-				fmt.Println("\nRun the tool again after resolving conflicts to continue.")
+			if strings.Contains(err.Error(), "CONFLICT_DETECTED") {
+				// Handle conflicts by restarting TUI in conflict mode
+				fmt.Println("Entering conflict resolution mode...")
+				
+				// Restart TUI for conflict resolution
+				p := tea.NewProgram(cp, tea.WithAltScreen())
+				if _, err := p.Run(); err != nil {
+					fmt.Printf("Error running conflict resolution TUI: %v\n", err)
+					os.Exit(1)
+				}
+				
+				// After conflict resolution TUI exits
+				if cp.quitting {
+					fmt.Println("Exited conflict resolution.")
+				}
 			} else {
 				fmt.Printf("❌ Error: %v\n", err)
 				os.Exit(1)

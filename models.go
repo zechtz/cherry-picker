@@ -27,6 +27,13 @@ type ConflictFile struct {
 	HasConflicts bool   // Whether file has conflict markers
 }
 
+type EditorOption struct {
+	Name        string // Internal name (vim, code, etc.)
+	Command     string // Command to execute
+	Description string // User-friendly description
+	Simple      bool   // True for simple editors that show conflict markers
+}
+
 type CherryPicker struct {
 	currentBranch     string
 	authorName        string
@@ -48,6 +55,9 @@ type CherryPicker struct {
 	conflictCommit    string
 	conflictFiles     []ConflictFile
 	conflictResolved  bool
+	editorMode        bool
+	availableEditors  []EditorOption
+	editorIndex       int
 	rebaseRequested   bool
 	executeRequested  bool
 	searchMode        bool
@@ -376,6 +386,39 @@ func (cp *CherryPicker) loadConflictFiles() {
 	if conflicts, err := cp.getConflictedFiles(); err == nil {
 		cp.conflictFiles = conflicts
 	}
+}
+
+// enterEditorMode enters editor selection mode
+func (cp *CherryPicker) enterEditorMode() {
+	cp.editorMode = true
+	cp.editorIndex = 0
+	cp.availableEditors = cp.getAvailableEditors()
+}
+
+// exitEditorMode exits editor selection mode
+func (cp *CherryPicker) exitEditorMode() {
+	cp.editorMode = false
+	cp.availableEditors = nil
+	cp.editorIndex = 0
+}
+
+// selectEditor opens the selected editor for conflict resolution
+func (cp *CherryPicker) selectEditor() error {
+	if cp.editorIndex >= len(cp.availableEditors) {
+		return fmt.Errorf("invalid editor selection")
+	}
+	
+	selectedEditor := cp.availableEditors[cp.editorIndex]
+	cp.exitEditorMode()
+	
+	// Open all conflicted files in the selected editor
+	if err := cp.openAllConflictedFiles(selectedEditor); err != nil {
+		return err
+	}
+	
+	// Reload conflict files after editing
+	cp.loadConflictFiles()
+	return nil
 }
 
 // toggleConflictResolution toggles the conflict resolution interface

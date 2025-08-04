@@ -30,6 +30,9 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Handle conflict mode input differently
 		if cp.conflictMode {
+			if cp.editorMode {
+				return cp.handleEditorInput(msg)
+			}
 			return cp.handleConflictInput(msg)
 		}
 		
@@ -219,6 +222,9 @@ func (cp *CherryPicker) View() string {
 	}
 	
 	if cp.conflictMode {
+		if cp.editorMode {
+			return cp.renderEditorView()
+		}
 		return cp.renderConflictView()
 	}
 	
@@ -497,11 +503,27 @@ func (cp *CherryPicker) handleConflictInput(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		if err := cp.skipConflictResolution(); err == nil {
 			cp.exitConflictMode()
 		}
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		// Select file by number for resolution
-		fileIndex := int(msg.String()[0] - '1')
-		if fileIndex < len(cp.conflictFiles) {
-			cp.showFileResolutionOptions(fileIndex)
+	case "1":
+		// Enter editor selection mode
+		cp.enterEditorMode()
+	case "2":
+		// Skip this commit
+		if err := cp.skipConflictResolution(); err == nil {
+			cp.exitConflictMode()
+		}
+	case "3":
+		// Abort cherry-pick
+		if err := cp.abortConflictResolution(); err == nil {
+			cp.exitConflictMode()
+		}
+	case "4":
+		// Continue after manual resolution
+		if err := cp.continueConflictResolution(); err != nil {
+			// Still have conflicts, stay in conflict mode
+			cp.loadConflictFiles()
+		} else {
+			// Success, exit conflict mode
+			cp.exitConflictMode()
 		}
 	case "r":
 		// Refresh conflict status
@@ -564,15 +586,15 @@ func (cp *CherryPicker) renderConflictView() string {
 	
 	// Resolution options
 	s.WriteString("🔧 Resolution Options:\n")
-	s.WriteString("• Press number (1-9) to resolve specific file with 'ours' strategy\n")
-	s.WriteString("• c = Continue cherry-pick (if all resolved)\n")
-	s.WriteString("• a = Abort cherry-pick\n")
-	s.WriteString("• s = Skip this commit\n")
+	s.WriteString("• 1 = Choose editor to resolve conflicts\n")
+	s.WriteString("• 2 = Skip this commit\n")
+	s.WriteString("• 3 = Abort cherry-pick\n")
+	s.WriteString("• 4 = Continue after manual resolution\n")
 	s.WriteString("• r = Refresh conflict status\n")
 	s.WriteString("• ESC = Exit conflict mode\n\n")
 	
 	s.WriteString("💡 Tip: Resolve conflicts manually in your editor, then press 'r' to refresh\n")
-	s.WriteString("    and 'c' to continue when all conflicts are resolved.\n")
+	s.WriteString("    and '4' to continue when all conflicts are resolved.\n")
 	
 	return s.String()
 }
@@ -1000,5 +1022,78 @@ func (cp *CherryPicker) getSelectedCommitsDisplay() string {
 		s.WriteString(fmt.Sprintf("  ✓ %s\n", commit.Full))
 	}
 
+	return s.String()
+}
+
+// handleEditorInput handles keyboard input when in editor selection mode
+func (cp *CherryPicker) handleEditorInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		cp.quitting = true
+		return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
+	case "esc":
+		// Exit editor mode, back to conflict mode
+		cp.exitEditorMode()
+	case "enter", " ":
+		// Select the current editor and open it
+		if err := cp.selectEditor(); err != nil {
+			// Handle error, but for now just exit editor mode
+			cp.exitEditorMode()
+		}
+	case "down", "j":
+		// Navigate down in editor list
+		if cp.editorIndex < len(cp.availableEditors)-1 {
+			cp.editorIndex++
+		}
+	case "up", "k":
+		// Navigate up in editor list
+		if cp.editorIndex > 0 {
+			cp.editorIndex--
+		}
+	}
+	return cp, nil
+}
+
+// renderEditorView renders the editor selection interface
+func (cp *CherryPicker) renderEditorView() string {
+	var s strings.Builder
+	
+	s.WriteString("✏️  Choose Editor for Conflict Resolution\n")
+	s.WriteString("═══════════════════════════════════════════════════════════════════════════════\n\n")
+	
+	if len(cp.availableEditors) == 0 {
+		s.WriteString("❌ No editors found on your system.\n\n")
+		s.WriteString("Press ESC to go back to conflict resolution options.")
+		return s.String()
+	}
+	
+	s.WriteString("Available editors on your system:\n\n")
+	
+	for i, editor := range cp.availableEditors {
+		cursor := "  "
+		if i == cp.editorIndex {
+			cursor = "→ "
+			s.WriteString(fmt.Sprintf("\033[7m%s%d. %s\033[0m\n", cursor, i+1, editor.Description))
+		} else {
+			s.WriteString(fmt.Sprintf("%s%d. %s\n", cursor, i+1, editor.Description))
+		}
+		
+		// Add additional info for different editor types
+		if editor.Simple {
+			s.WriteString("     Opens files with conflict markers (<<<<<<< ======= >>>>>>>)\n")
+		} else if editor.Name == "mergetool" {
+			s.WriteString("     Uses your configured git merge tool\n")
+		} else {
+			s.WriteString("     Advanced editor with conflict resolution features\n")
+		}
+		s.WriteString("\n")
+	}
+	
+	s.WriteString("Controls:\n")
+	s.WriteString("• ↑↓ or j/k = Navigate editors\n")
+	s.WriteString("• Enter/Space = Select editor\n")
+	s.WriteString("• ESC = Back to conflict options\n")
+	s.WriteString("• q = Quit\n")
+	
 	return s.String()
 }

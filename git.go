@@ -265,7 +265,8 @@ func (cp *CherryPicker) cherryPickWithConflictHandling(shas []string) error {
 			if cp.hasConflicts() {
 				fmt.Printf("⚠️  Conflict detected in commit %s\n", sha)
 				cp.enterConflictMode(sha)
-				return fmt.Errorf("conflict in commit %s - use conflict resolution interface", sha)
+				// Return a special conflict error that main.go can handle
+				return fmt.Errorf("CONFLICT_DETECTED:%s", sha)
 			}
 			return fmt.Errorf("cherry-pick failed for %s: %v", sha, err)
 		}
@@ -485,6 +486,129 @@ func (cp *CherryPicker) abortConflictResolution() error {
 // skipConflictResolution skips the current commit
 func (cp *CherryPicker) skipConflictResolution() error {
 	return exec.Command("git", "cherry-pick", "--skip").Run()
+}
+
+// openMergeTool opens git mergetool for conflict resolution
+func (cp *CherryPicker) openMergeTool() error {
+	cmd := exec.Command("git", "mergetool")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// getAvailableEditors detects available editors on the system
+func (cp *CherryPicker) getAvailableEditors() []EditorOption {
+	var editors []EditorOption
+	
+	// List of editors to check for, in order of preference
+	editorChecks := []struct {
+		name        string
+		command     string
+		checkArgs   []string
+		description string
+		simple      bool // true for simple editors that just show conflict markers
+	}{
+		{"vim", "vim", []string{"--version"}, "Vim (simple conflict markers)", true},
+		{"nvim", "nvim", []string{"--version"}, "Neovim (simple conflict markers)", true},
+		{"nano", "nano", []string{"--version"}, "Nano (simple conflict markers)", true},
+		{"code", "code", []string{"--version"}, "VS Code", false},
+		{"subl", "subl", []string{"--version"}, "Sublime Text", false},
+		{"atom", "atom", []string{"--version"}, "Atom", false},
+		{"emacs", "emacs", []string{"--version"}, "Emacs", true},
+	}
+	
+	for _, editor := range editorChecks {
+		if cp.isCommandAvailable(editor.command, editor.checkArgs) {
+			editors = append(editors, EditorOption{
+				Name:        editor.name,
+				Command:     editor.command,
+				Description: editor.description,
+				Simple:      editor.simple,
+			})
+		}
+	}
+	
+	// Always add git mergetool as an option
+	editors = append(editors, EditorOption{
+		Name:        "mergetool",
+		Command:     "git",
+		Description: "Git mergetool (configured tool)",
+		Simple:      false,
+	})
+	
+	return editors
+}
+
+// isCommandAvailable checks if a command is available on the system
+func (cp *CherryPicker) isCommandAvailable(command string, args []string) bool {
+	cmd := exec.Command(command, args...)
+	return cmd.Run() == nil
+}
+
+// openEditor opens a specific editor for conflict resolution
+func (cp *CherryPicker) openEditor(editorOption EditorOption, filePath string) error {
+	var cmd *exec.Cmd
+	
+	switch editorOption.Name {
+	case "mergetool":
+		// Use git mergetool
+		cmd = exec.Command("git", "mergetool", filePath)
+	case "code":
+		// VS Code - wait for editor to close
+		cmd = exec.Command("code", "--wait", filePath)
+	case "subl":
+		// Sublime Text - wait for editor to close
+		cmd = exec.Command("subl", "--wait", filePath)
+	case "atom":
+		// Atom - wait for editor to close
+		cmd = exec.Command("atom", "--wait", filePath)
+	default:
+		// Simple editors (vim, nvim, nano, emacs)
+		cmd = exec.Command(editorOption.Command, filePath)
+	}
+	
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// openAllConflictedFiles opens all conflicted files in the chosen editor
+func (cp *CherryPicker) openAllConflictedFiles(editorOption EditorOption) error {
+	if len(cp.conflictFiles) == 0 {
+		return fmt.Errorf("no conflicted files found")
+	}
+	
+	// For simple editors, open all files at once
+	if editorOption.Simple || editorOption.Name == "mergetool" {
+		if editorOption.Name == "mergetool" {
+			// Use git mergetool without specific file (handles all conflicts)
+			return cp.openMergeTool()
+		}
+		
+		// For simple editors, open all conflicted files
+		var filePaths []string
+		for _, file := range cp.conflictFiles {
+			filePaths = append(filePaths, file.Path)
+		}
+		
+		args := append([]string{}, filePaths...)
+		cmd := exec.Command(editorOption.Command, args...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	
+	// For advanced editors, open each file individually
+	for _, file := range cp.conflictFiles {
+		if err := cp.openEditor(editorOption, file.Path); err != nil {
+			return err
+		}
+	}
+	
+	return nil
 }
 
 // getAvailableBranches returns a list of available branches for switching
