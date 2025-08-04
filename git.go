@@ -32,6 +32,7 @@ func (cp *CherryPicker) validateBranch() error {
 		return fmt.Errorf("could not get git user name")
 	}
 	cp.authorName = strings.TrimSpace(string(output))
+	cp.selectedAuthor = cp.authorName // Default to current user
 
 	return nil
 }
@@ -95,7 +96,7 @@ func (cp *CherryPicker) getUniqueCommits() error {
 	}
 	
 	// Show commits in source that are NOT in target
-	cmd := exec.Command("git", "log", targetRef+".."+sourceRef, "--author="+cp.authorName, "--oneline")
+	cmd := exec.Command("git", "log", targetRef+".."+sourceRef, "--author="+cp.selectedAuthor, "--oneline")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -292,6 +293,46 @@ func (cp *CherryPicker) cherryPickWithConflictHandling(shas []string) error {
 	fmt.Println()
 	fmt.Println("📣 Now you can open a merge request when ready.")
 
+	return nil
+}
+
+// getAvailableAuthors gets all authors who have committed to the source branch
+func (cp *CherryPicker) getAvailableAuthors() error {
+	sourceBranch := cp.config.Git.SourceBranch
+	
+	// Try remote branch first, then fall back to local branch
+	remoteSource := cp.config.Git.Remote + "/" + sourceBranch
+	var sourceRef string
+	
+	if err := exec.Command("git", "rev-parse", "--verify", remoteSource).Run(); err == nil {
+		sourceRef = remoteSource
+	} else if err := exec.Command("git", "rev-parse", "--verify", sourceBranch).Run(); err == nil {
+		sourceRef = sourceBranch
+	} else {
+		return fmt.Errorf("source branch '%s' not found", sourceBranch)
+	}
+	
+	// Get all authors from the source branch
+	cmd := exec.Command("git", "log", sourceRef, "--format=%an", "--pretty=format:%an")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get authors: %v", err)
+	}
+	
+	// Parse authors and remove duplicates
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	authorSet := make(map[string]bool)
+	var authors []string
+	
+	for _, line := range lines {
+		author := strings.TrimSpace(line)
+		if author != "" && !authorSet[author] {
+			authorSet[author] = true
+			authors = append(authors, author)
+		}
+	}
+	
+	cp.availableAuthors = authors
 	return nil
 }
 
