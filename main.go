@@ -71,7 +71,7 @@ func main() {
 	}
 
 	if len(cp.commits) == 0 {
-		fmt.Printf("✅ No unique commits found. Your branch is fully merged into %s.\n", sourceBranch)
+		fmt.Printf("✅ No commits found. %s is up to date with %s.\n", sourceBranch, targetBranch)
 		return
 	}
 

@@ -37,7 +37,7 @@ func (cp *CherryPicker) validateBranch() error {
 }
 
 func (cp *CherryPicker) fetchOrigin() error {
-	fmt.Printf("🔍 Detecting unique commits in %s that are not in %s...\n", cp.currentBranch, cp.config.Git.SourceBranch)
+	fmt.Printf("🔍 Detecting commits in %s that are not in %s...\n", cp.config.Git.SourceBranch, cp.config.Git.TargetBranch)
 
 	// Skip fetch if auto-fetch is disabled
 	if !cp.config.Git.AutoFetch {
@@ -66,21 +66,36 @@ func (cp *CherryPicker) fetchOrigin() error {
 }
 
 func (cp *CherryPicker) getUniqueCommits() error {
-	// Try remote/source branch first, then fall back to local source branch
-	var cmd *exec.Cmd
+	// Get commits from source branch that are not in target branch
+	sourceBranch := cp.config.Git.SourceBranch
+	targetBranch := cp.config.Git.TargetBranch
 	
-	remoteBranch := cp.config.Git.Remote + "/" + cp.config.Git.SourceBranch
-	localBranch := cp.config.Git.SourceBranch
-
-	// Check if remote/source branch exists
-	if err := exec.Command("git", "rev-parse", "--verify", remoteBranch).Run(); err == nil {
-		cmd = exec.Command("git", "log", remoteBranch+"..HEAD", "--author="+cp.authorName, "--oneline")
-	} else if err := exec.Command("git", "rev-parse", "--verify", localBranch).Run(); err == nil {
-		cmd = exec.Command("git", "log", localBranch+"..HEAD", "--author="+cp.authorName, "--oneline")
+	// Try remote branches first, then fall back to local branches
+	remoteSource := cp.config.Git.Remote + "/" + sourceBranch
+	remoteTarget := cp.config.Git.Remote + "/" + targetBranch
+	
+	var sourceRef, targetRef string
+	
+	// Determine source branch reference (remote or local)
+	if err := exec.Command("git", "rev-parse", "--verify", remoteSource).Run(); err == nil {
+		sourceRef = remoteSource
+	} else if err := exec.Command("git", "rev-parse", "--verify", sourceBranch).Run(); err == nil {
+		sourceRef = sourceBranch
 	} else {
-		// No source branch exists, show all commits by author
-		cmd = exec.Command("git", "log", "--author="+cp.authorName, "--oneline")
+		return fmt.Errorf("source branch '%s' not found", sourceBranch)
 	}
+	
+	// Determine target branch reference (remote or local)
+	if err := exec.Command("git", "rev-parse", "--verify", remoteTarget).Run(); err == nil {
+		targetRef = remoteTarget
+	} else if err := exec.Command("git", "rev-parse", "--verify", targetBranch).Run(); err == nil {
+		targetRef = targetBranch
+	} else {
+		return fmt.Errorf("target branch '%s' not found", targetBranch)
+	}
+	
+	// Show commits in source that are NOT in target
+	cmd := exec.Command("git", "log", targetRef+".."+sourceRef, "--author="+cp.authorName, "--oneline")
 
 	output, err := cmd.Output()
 	if err != nil {

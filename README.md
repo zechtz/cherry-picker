@@ -1,6 +1,6 @@
 # 🍒 Cherry Picker
 
-An interactive terminal-based Git cherry-pick tool that makes selectively applying commits between branches intuitive and efficient.
+An interactive terminal-based Git cherry-pick tool that makes selectively applying commits from a source branch to a target branch intuitive and efficient.
 
 ![Cherry Picker Screenshot](shot.png)
 
@@ -17,11 +17,11 @@ An interactive terminal-based Git cherry-pick tool that makes selectively applyi
 *Screenshot showing branch selection with search functionality - coming soon*
 
 ### 🎯 Smart Commit Detection
-- **Identifies commits in your current branch** that are not yet in the selected source branch
+- **Identifies commits in the source branch** that are not yet in the target branch
 - **Filters by author** to show only your contributions (commits you authored)
 - **Detects merge commits** and already-applied commits with visual indicators
 - **Shows detailed metadata** including date, author, files changed, insertions/deletions
-- **Destination awareness** - commits will be cherry-picked to the selected target branch
+- **Cherry-picks selected commits** from source branch to target branch
 
 ### 🖱️ Interactive Selection
 - **Individual selection**: Use `Space` or `Enter` to toggle commit selection
@@ -97,14 +97,14 @@ cherry-picker --generate-config
 ```
 
 ### Workflow Example
-1. Navigate to your feature branch (e.g., `feature/new-api`)
+1. Navigate to any branch (your current branch doesn't matter for commit selection)
 2. Run `cherry-picker`
-3. **Select source branch** - Choose branch to compare against (e.g., `dev`, `main`)
+3. **Select source branch** - Choose branch containing commits you want to cherry-pick (e.g., `dev`, `main`)
 4. **Select target branch** - Choose destination for cherry-picking (e.g., `staging`)
-5. Tool shows commits from your current branch that are NOT in the source branch
+5. Tool shows commits from source branch that are NOT in target branch
 6. Select commits using `Space` or `Enter`
 7. Use `/` to search for specific commits if needed
-8. Press `e` to execute cherry-pick (applies selected commits to target branch)
+8. Press `e` to execute cherry-pick (applies selected commits from source to target)
 9. Handle any conflicts in the resolution interface
 
 ## ⌨️ Keyboard Shortcuts
