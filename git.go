@@ -62,15 +62,13 @@ func (cp *CherryPicker) fetchOrigin() error {
 }
 
 func (cp *CherryPicker) getUniqueCommits() error {
-	// Get commits from source branch that are not in target branch
+	// Get all commits from source branch
 	sourceBranch := cp.config.Git.SourceBranch
-	targetBranch := cp.config.Git.TargetBranch
 	
-	// Try remote branches first, then fall back to local branches
+	// Try remote branch first, then fall back to local branch
 	remoteSource := cp.config.Git.Remote + "/" + sourceBranch
-	remoteTarget := cp.config.Git.Remote + "/" + targetBranch
 	
-	var sourceRef, targetRef string
+	var sourceRef string
 	
 	// Determine source branch reference (remote or local)
 	if err := exec.Command("git", "rev-parse", "--verify", remoteSource).Run(); err == nil {
@@ -81,17 +79,9 @@ func (cp *CherryPicker) getUniqueCommits() error {
 		return fmt.Errorf("source branch '%s' not found", sourceBranch)
 	}
 	
-	// Determine target branch reference (remote or local)
-	if err := exec.Command("git", "rev-parse", "--verify", remoteTarget).Run(); err == nil {
-		targetRef = remoteTarget
-	} else if err := exec.Command("git", "rev-parse", "--verify", targetBranch).Run(); err == nil {
-		targetRef = targetBranch
-	} else {
-		return fmt.Errorf("target branch '%s' not found", targetBranch)
-	}
-	
-	// Show commits in source that are NOT in target
-	cmd := exec.Command("git", "log", targetRef+".."+sourceRef, "--author="+cp.selectedAuthor, "--oneline")
+	// Show all commits in source branch (both applied and not applied to target)
+	// We'll check individually which ones are already applied
+	cmd := exec.Command("git", "log", sourceRef, "--author="+cp.selectedAuthor, "--oneline")
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -119,19 +109,27 @@ func (cp *CherryPicker) getUniqueCommits() error {
 				}
 			}
 			
-			// Check if commit already exists in target branch
-			commit.AlreadyApplied = cp.isCommitInTargetBranch(sha)
+			// Quick check if commit exists in target branch (simple ancestor check)
+			// Note: This should rarely be true since git log targetRef..sourceRef
+			// already filters out commits that are in target
+			commit.AlreadyApplied = cp.quickCheckAlreadyApplied(sha)
 			
 			cp.commits = append(cp.commits, commit)
 		}
 	}
 
-	// Reverse the commits if the reverse flag is set
-	if cp.reverse {
+	// By default, git log shows newest first, but we want oldest first (chronological)
+	// So reverse by default, and only keep git's order if reverse flag is true
+	if !cp.reverse {
+		// Default: Show oldest commits first (reverse git log order)
 		for i, j := 0, len(cp.commits)-1; i < j; i, j = i+1, j-1 {
 			cp.commits[i], cp.commits[j] = cp.commits[j], cp.commits[i]
 		}
 	}
+	// If cp.reverse is true, keep git's natural order (newest first)
+
+	// Always start cursor at the top
+	cp.currentIndex = 0
 
 	return nil
 }
@@ -742,6 +740,29 @@ func (cp *CherryPicker) normalizePatch(patch string) string {
 	}
 	
 	return strings.Join(normalizedLines, "\n")
+}
+
+// quickCheckAlreadyApplied does a fast ancestor check to see if commit exists in target
+func (cp *CherryPicker) quickCheckAlreadyApplied(sha string) bool {
+	targetBranch := cp.config.Git.TargetBranch
+	remote := cp.config.Git.Remote
+	
+	// Try remote target branch first, then local
+	var targetRef string
+	remoteTarget := remote + "/" + targetBranch
+	
+	if err := exec.Command("git", "rev-parse", "--verify", remoteTarget).Run(); err == nil {
+		targetRef = remoteTarget
+	} else if err := exec.Command("git", "rev-parse", "--verify", targetBranch).Run(); err == nil {
+		targetRef = targetBranch
+	} else {
+		// Target branch not found, assume not applied
+		return false
+	}
+	
+	// Simple ancestor check - much faster than patch comparison
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", sha, targetRef)
+	return cmd.Run() == nil
 }
 
 // getCommitDiff returns the full diff for a commit

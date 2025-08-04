@@ -40,6 +40,7 @@ type CherryPicker struct {
 	reverse           bool
 	config            *Config
 	detailView        bool
+	hideApplied       bool
 	rangeSelection    bool
 	rangeStart        int
 	rangeEnd          int
@@ -59,9 +60,12 @@ type CherryPicker struct {
 	branchMode        bool
 	branchSwitchType  string // "target" or "source"
 	availableBranches []string
-	authorMode        bool
-	authorIndex       int
-	branchIndex      int
+	authorMode           bool
+	authorIndex          int
+	authorSearchMode     bool
+	authorSearchQuery    string
+	filteredAuthors      []int  // indices of authors that match search
+	branchIndex          int
 }
 
 type tickMsg time.Time
@@ -164,6 +168,9 @@ func (cp *CherryPicker) toggleCommitOrder() {
 	
 	// Toggle the reverse flag to track current state
 	cp.reverse = !cp.reverse
+	
+	// Always start cursor at the top after reversal
+	cp.currentIndex = 0
 }
 
 // toggleSearchMode enters or exits search mode
@@ -245,17 +252,32 @@ func (cp *CherryPicker) commitMatchesSearch(commit Commit, query string) bool {
 
 // getVisibleCommits returns the commits that should be displayed (filtered or all)
 func (cp *CherryPicker) getVisibleCommits() []Commit {
-	if !cp.searchMode || len(cp.filteredCommits) == 0 {
-		return cp.commits
+	var baseCommits []Commit
+	
+	if cp.searchMode && len(cp.filteredCommits) > 0 {
+		// Get filtered commits
+		for _, index := range cp.filteredCommits {
+			if index < len(cp.commits) {
+				baseCommits = append(baseCommits, cp.commits[index])
+			}
+		}
+	} else {
+		// Get all commits
+		baseCommits = cp.commits
 	}
 	
-	var visible []Commit
-	for _, index := range cp.filteredCommits {
-		if index < len(cp.commits) {
-			visible = append(visible, cp.commits[index])
+	// Filter out already applied commits if hideApplied is enabled
+	if cp.hideApplied {
+		var visible []Commit
+		for _, commit := range baseCommits {
+			if !commit.AlreadyApplied {
+				visible = append(visible, commit)
+			}
 		}
+		return visible
 	}
-	return visible
+	
+	return baseCommits
 }
 
 // getCurrentCommit returns the currently selected commit (accounting for search filter)
@@ -473,7 +495,6 @@ func (cp *CherryPicker) reloadCommits() error {
 	// Clear current state
 	cp.commits = nil
 	cp.selected = make(map[string]bool)
-	cp.currentIndex = 0
 	cp.filteredCommits = nil
 	cp.searchQuery = ""
 	cp.searchMode = false
@@ -487,3 +508,64 @@ func (cp *CherryPicker) reloadCommits() error {
 	
 	return cp.getUniqueCommits()
 }
+
+// toggleAuthorSearchMode enters or exits author search mode
+func (cp *CherryPicker) toggleAuthorSearchMode() {
+	if !cp.authorSearchMode {
+		// Enter author search mode
+		cp.authorSearchMode = true
+		cp.authorSearchQuery = ""
+		cp.updateAuthorSearchResults()
+	} else {
+		// Exit author search mode
+		cp.authorSearchMode = false
+		cp.authorSearchQuery = ""
+		cp.filteredAuthors = nil
+		// Reset cursor to a valid position
+		if cp.authorIndex >= len(cp.availableAuthors) {
+			cp.authorIndex = len(cp.availableAuthors) - 1
+		}
+		if cp.authorIndex < 0 {
+			cp.authorIndex = 0
+		}
+	}
+}
+
+// updateAuthorSearchResults filters authors based on search query
+func (cp *CherryPicker) updateAuthorSearchResults() {
+	cp.filteredAuthors = nil
+	
+	if cp.authorSearchQuery == "" {
+		// Empty search shows all authors
+		for i := range cp.availableAuthors {
+			cp.filteredAuthors = append(cp.filteredAuthors, i)
+		}
+	} else {
+		// Filter authors based on search query
+		query := strings.ToLower(cp.authorSearchQuery)
+		for i, author := range cp.availableAuthors {
+			if strings.Contains(strings.ToLower(author), query) {
+				cp.filteredAuthors = append(cp.filteredAuthors, i)
+			}
+		}
+	}
+	
+	// Reset cursor to first filtered result
+	cp.authorIndex = 0
+}
+
+// getVisibleAuthors returns the authors that should be displayed (filtered or all)
+func (cp *CherryPicker) getVisibleAuthors() []string {
+	if !cp.authorSearchMode || len(cp.filteredAuthors) == 0 {
+		return cp.availableAuthors
+	}
+	
+	var visible []string
+	for _, index := range cp.filteredAuthors {
+		if index < len(cp.availableAuthors) {
+			visible = append(visible, cp.availableAuthors[index])
+		}
+	}
+	return visible
+}
+

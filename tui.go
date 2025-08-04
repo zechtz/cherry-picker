@@ -54,7 +54,7 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "down", "j", "n":
 			maxIndex := cp.getMaxIndex()
-			if cp.currentIndex < maxIndex {
+			if cp.currentIndex < maxIndex && maxIndex >= 0 {
 				cp.currentIndex++
 				cp.updateRangeEnd()
 				cp.updatePreview()
@@ -65,6 +65,25 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cp.updateRangeEnd()
 				cp.updatePreview()
 			}
+		case "pagedown", "ctrl+f":
+			// Jump down by page
+			maxIndex := cp.getMaxIndex()
+			if maxIndex >= 0 {
+				cp.currentIndex += 25
+				if cp.currentIndex > maxIndex {
+					cp.currentIndex = maxIndex
+				}
+				cp.updateRangeEnd()
+				cp.updatePreview()
+			}
+		case "pageup", "ctrl+b":
+			// Jump up by page
+			cp.currentIndex -= 25
+			if cp.currentIndex < 0 {
+				cp.currentIndex = 0
+			}
+			cp.updateRangeEnd()
+			cp.updatePreview()
 		case "/", "f":
 			// Enter search mode
 			cp.toggleSearchMode()
@@ -89,6 +108,9 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d":
 			// Toggle detail view
 			cp.detailView = !cp.detailView
+		case "H":
+			// Toggle hiding applied commits
+			cp.hideApplied = !cp.hideApplied
 		case "a":
 			// Select all visible commits (except already applied ones)
 			visibleCommits := cp.getVisibleCommits()
@@ -208,6 +230,7 @@ func (cp *CherryPicker) View() string {
 		return cp.renderAuthorView()
 	}
 
+
 	var s strings.Builder
 
 	s.WriteString("📝 Cherry Pick Commits\n\n")
@@ -238,7 +261,52 @@ func (cp *CherryPicker) View() string {
 	// Get commits to display (filtered or all)
 	visibleCommits := cp.getVisibleCommits()
 	
-	for i, commit := range visibleCommits {
+	// Pagination settings
+	maxCommitsPerPage := 25
+	startIndex := 0
+	endIndex := len(visibleCommits)
+	
+	// Calculate pagination based on current cursor position
+	if len(visibleCommits) > maxCommitsPerPage {
+		// Ensure cursor is within bounds
+		if cp.currentIndex >= len(visibleCommits) {
+			cp.currentIndex = len(visibleCommits) - 1
+		}
+		if cp.currentIndex < 0 {
+			cp.currentIndex = 0
+		}
+		
+		// Calculate which page the cursor should be on
+		cursorPage := cp.currentIndex / maxCommitsPerPage
+		startIndex = cursorPage * maxCommitsPerPage
+		endIndex = startIndex + maxCommitsPerPage
+		if endIndex > len(visibleCommits) {
+			endIndex = len(visibleCommits)
+		}
+		
+		// Ensure the cursor is visible on the current page
+		if cp.currentIndex < startIndex || cp.currentIndex >= endIndex {
+			// Recalculate page to ensure cursor is visible
+			cursorPage = cp.currentIndex / maxCommitsPerPage
+			startIndex = cursorPage * maxCommitsPerPage
+			endIndex = startIndex + maxCommitsPerPage
+			if endIndex > len(visibleCommits) {
+				endIndex = len(visibleCommits)
+			}
+		}
+	}
+	
+	// Show pagination info if needed
+	if len(visibleCommits) > maxCommitsPerPage {
+		currentPage := (cp.currentIndex / maxCommitsPerPage) + 1
+		totalPages := (len(visibleCommits) + maxCommitsPerPage - 1) / maxCommitsPerPage
+		s.WriteString(fmt.Sprintf("Page %d of %d (showing %d-%d of %d commits)\n", 
+			currentPage, totalPages, startIndex+1, endIndex, len(visibleCommits)))
+	}
+	
+	// Display commits for current page
+	for i := startIndex; i < endIndex; i++ {
+		commit := visibleCommits[i]
 		cursor := "  "
 		checkbox := "[ ]"
 		commitText := commit.Full
@@ -259,9 +327,10 @@ func (cp *CherryPicker) View() string {
 			commitText = "\033[9m" + commit.Full + "\033[0m"
 		}
 
+		// Highlight current cursor position - use actual index not display index
 		if i == cp.currentIndex {
 			cursor = "→ "
-			// Add blinking cursor inside the checkbox
+			// Make the entire line highlighted for better visibility
 			if cp.cursorBlink {
 				if commit.AlreadyApplied {
 					checkbox = "[✗]" // No blinking for already applied
@@ -271,6 +340,8 @@ func (cp *CherryPicker) View() string {
 					checkbox = "[█]"
 				}
 			}
+			// Add background highlighting to the entire line
+			commitText = "\033[7m" + commitText + "\033[0m"
 		}
 
 		// Add merge commit indicator
@@ -540,6 +611,11 @@ func (cp *CherryPicker) handleBranchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleAuthorInput handles keyboard input when in author selection mode
 func (cp *CherryPicker) handleAuthorInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle search mode input differently
+	if cp.authorSearchMode {
+		return cp.handleAuthorSearchInput(msg)
+	}
+	
 	switch msg.String() {
 	case "ctrl+c", "q":
 		cp.quitting = true
@@ -547,7 +623,7 @@ func (cp *CherryPicker) handleAuthorInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		// Exit author mode without changes
 		cp.exitAuthorMode()
-	case "enter":
+	case " ":
 		// Select the current author and reload commits
 		if err := cp.selectAuthor(); err != nil {
 			// Handle error, but for now just exit author mode
@@ -555,7 +631,8 @@ func (cp *CherryPicker) handleAuthorInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "down", "j":
 		// Navigate down in author list
-		if cp.authorIndex < len(cp.availableAuthors)-1 {
+		visibleAuthors := cp.getVisibleAuthors()
+		if cp.authorIndex < len(visibleAuthors)-1 {
 			cp.authorIndex++
 		}
 	case "up", "k":
@@ -563,12 +640,86 @@ func (cp *CherryPicker) handleAuthorInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cp.authorIndex > 0 {
 			cp.authorIndex--
 		}
+	case "pagedown", "ctrl+f":
+		// Jump down by page in author list
+		visibleAuthors := cp.getVisibleAuthors()
+		maxIndex := len(visibleAuthors) - 1
+		cp.authorIndex += 10
+		if cp.authorIndex > maxIndex {
+			cp.authorIndex = maxIndex
+		}
+	case "pageup", "ctrl+b":
+		// Jump up by page in author list
+		cp.authorIndex -= 10
+		if cp.authorIndex < 0 {
+			cp.authorIndex = 0
+		}
+	case "/", "f":
+		// Enter author search mode
+		cp.toggleAuthorSearchMode()
 	case "r":
 		// Refresh author list
 		if err := cp.getAvailableAuthors(); err != nil {
 			// Handle error - keep current list
 		}
 	}
+	return cp, nil
+}
+
+// handleAuthorSearchInput handles keyboard input when in author search mode
+func (cp *CherryPicker) handleAuthorSearchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle special keys first (control keys that shouldn't be added to search)
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		cp.quitting = true
+		return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
+	case tea.KeyEsc:
+		// Exit search mode
+		cp.toggleAuthorSearchMode()
+		return cp, nil
+	case tea.KeyEnter:
+		// Exit search mode and keep current filter
+		cp.authorSearchMode = false
+		if len(cp.filteredAuthors) == 0 {
+			// If no results, reset to show all authors
+			cp.filteredAuthors = nil
+		}
+		return cp, nil
+	case tea.KeyBackspace:
+		// Remove last character from search query
+		if len(cp.authorSearchQuery) > 0 {
+			cp.authorSearchQuery = cp.authorSearchQuery[:len(cp.authorSearchQuery)-1]
+			cp.updateAuthorSearchResults()
+		}
+		return cp, nil
+	case tea.KeyUp:
+		// Navigate up in search results (only arrow keys, not 'k')
+		if cp.authorIndex > 0 {
+			cp.authorIndex--
+		}
+		return cp, nil
+	case tea.KeyDown:
+		// Navigate down in search results (only arrow keys, not 'j')
+		visibleAuthors := cp.getVisibleAuthors()
+		if cp.authorIndex < len(visibleAuthors)-1 {
+			cp.authorIndex++
+		}
+		return cp, nil
+	case tea.KeySpace:
+		// Select current author in search mode
+		if err := cp.selectAuthor(); err != nil {
+			cp.exitAuthorMode()
+		}
+		return cp, nil
+	}
+	
+	// Handle regular character input - prioritize text input over everything else
+	if len(msg.String()) == 1 && msg.String() >= " " && msg.String() <= "~" {
+		// Add any printable ASCII character to search query
+		cp.authorSearchQuery += msg.String()
+		cp.updateAuthorSearchResults()
+	}
+	
 	return cp, nil
 }
 
@@ -634,50 +785,95 @@ func (cp *CherryPicker) renderBranchView() string {
 // renderAuthorView renders the author selection interface
 func (cp *CherryPicker) renderAuthorView() string {
 	var s strings.Builder
+
+	s.WriteString("📝 Cherry Pick Commits\n\n")
 	
-	s.WriteString("📝 Cherry Pick Commits - Author Selection\n")
-	s.WriteString("═══════════════════════════════════════════════════════════════════════════════\n")
-	s.WriteString(fmt.Sprintf("🌿 Cherry-picking from %s → %s\n\n", 
+	// Show cherry-pick direction and current author filter
+	s.WriteString(fmt.Sprintf("🌿 Cherry-picking from %s → %s\n", 
 		cp.config.Git.SourceBranch, 
 		cp.config.Git.TargetBranch))
-	s.WriteString(fmt.Sprintf("  Current Author Filter: %s\n", cp.selectedAuthor))
-	s.WriteString("\n")
+	s.WriteString(fmt.Sprintf("👤 Current Author Filter: %s\n\n", cp.selectedAuthor))
 	
-	if len(cp.availableAuthors) == 0 {
-		s.WriteString("❌ No available authors found.\n\n")
-		s.WriteString("Press ESC to go back or 'r' to refresh.\n")
+	// Show search interface if in search mode
+	if cp.authorSearchMode {
+		s.WriteString("🔍 Search Authors: " + cp.authorSearchQuery + "█\n")
+		s.WriteString("(ESC=exit search, ENTER=keep filter, ↑↓=navigate, SPACE=select)\n\n")
+		if len(cp.filteredAuthors) == 0 && cp.authorSearchQuery != "" {
+			s.WriteString("No authors match your search.\n")
+			return s.String()
+		}
+	} 
+
+	// Get authors to display (filtered or all)
+	visibleAuthors := cp.getVisibleAuthors()
+	if len(visibleAuthors) == 0 {
+		s.WriteString("No authors found.\n")
+		s.WriteString("\n")
+		s.WriteString("Status: No authors available\n")
+		s.WriteString("Controls: ESC=go back, r=refresh, q=quit\n")
 		return s.String()
 	}
+
+	// Pagination settings for authors
+	maxAuthorsPerPage := 10
+	startIndex := 0
+	endIndex := len(visibleAuthors)
 	
-	s.WriteString("👤 Select Author to Filter Commits:\n")
-	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n")
-	
-	for i, author := range cp.availableAuthors {
-		cursor := "  "
-		if i == cp.authorIndex {
-			cursor = "→ "
+	// Calculate pagination based on current cursor position
+	if len(visibleAuthors) > maxAuthorsPerPage {
+		page := cp.authorIndex / maxAuthorsPerPage
+		startIndex = page * maxAuthorsPerPage
+		endIndex = startIndex + maxAuthorsPerPage
+		if endIndex > len(visibleAuthors) {
+			endIndex = len(visibleAuthors)
 		}
-		
-		// Highlight current selected author
-		current := ""
-		if author == cp.selectedAuthor {
-			current = " (current)"
-		}
-		
-		s.WriteString(fmt.Sprintf("%s%s%s\n", cursor, author, current))
 	}
 	
-	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n\n")
+	// Show title with pagination info
+	if cp.authorSearchMode && cp.authorSearchQuery != "" {
+		s.WriteString(fmt.Sprintf("Filtered authors (%d results):\n", len(visibleAuthors)))
+	} else if len(visibleAuthors) > maxAuthorsPerPage {
+		currentPage := (cp.authorIndex / maxAuthorsPerPage) + 1
+		totalPages := (len(visibleAuthors) + maxAuthorsPerPage - 1) / maxAuthorsPerPage
+		s.WriteString(fmt.Sprintf("Available authors (Page %d of %d, showing %d-%d of %d):\n", 
+			currentPage, totalPages, startIndex+1, endIndex, len(visibleAuthors)))
+	} else {
+		s.WriteString("Available authors:\n")
+	}
 	
-	// Instructions
-	s.WriteString("🔧 Controls:\n")
-	s.WriteString("• ↑↓/k j = Navigate authors\n")
-	s.WriteString("• ENTER = Select author and reload commits\n")
-	s.WriteString("• r = Refresh author list\n")
-	s.WriteString("• ESC = Cancel and go back\n\n")
+	// Display authors for current page
+	for i := startIndex; i < endIndex; i++ {
+		author := visibleAuthors[i]
+		cursor := "  "
+		authorText := author
+		
+		// Mark current selected author
+		if author == cp.selectedAuthor {
+			authorText = "✓ " + author + " (current)"
+		}
+
+		// Highlight current cursor position with background
+		if i == cp.authorIndex {
+			cursor = "→ "
+			// Add background highlighting to the entire line for visibility
+			authorText = "\033[7m" + authorText + "\033[0m"
+		}
+
+		s.WriteString(fmt.Sprintf("%s%s\n", cursor, authorText))
+	}
+
+	s.WriteString("\n")
+	s.WriteString(fmt.Sprintf("Selected author: %s\n", cp.selectedAuthor))
+	s.WriteString("\n")
+	s.WriteString("Status: Ready\n")
 	
-	s.WriteString("💡 Tip: Selecting a different author will show only their commits and clear current selections.\n")
-	
+	// Show appropriate controls based on pagination
+	if len(cp.availableAuthors) > maxAuthorsPerPage {
+		s.WriteString("Controls: ↑↓/j k=navigate, PgUp/PgDn=page, SPACE=select, /=search, ESC=cancel, q=quit\n")
+	} else {
+		s.WriteString("Controls: ↑↓/j k=navigate, SPACE=select, /=search, ESC=cancel, q=quit\n")
+	}
+
 	return s.String()
 }
 
@@ -729,7 +925,11 @@ func (cp *CherryPicker) getStatusLine() string {
 		status = append(status, fmt.Sprintf("🔀 %d merge commits", mergeCount))
 	}
 	if appliedCount > 0 {
-		status = append(status, fmt.Sprintf("✗ %d already applied", appliedCount))
+		if cp.hideApplied {
+			status = append(status, fmt.Sprintf("👁️ %d applied commits hidden", appliedCount))
+		} else {
+			status = append(status, fmt.Sprintf("✗ %d already applied", appliedCount))
+		}
 	}
 	
 	// Show current sort order
@@ -762,6 +962,7 @@ func (cp *CherryPicker) getControlsDisplay() string {
 		// Normal mode controls
 		// Navigation & Selection
 		controls = append(controls, "↑↓/k j=navigate")
+		controls = append(controls, "PgUp/PgDn=page")
 		controls = append(controls, "ENTER/SPACE=toggle")
 		controls = append(controls, "r=range select")
 		controls = append(controls, "a=select all")
@@ -774,6 +975,7 @@ func (cp *CherryPicker) getControlsDisplay() string {
 		controls = append(controls, "B=SOURCE BRANCH")
 		controls = append(controls, "A=AUTHOR")
 		controls = append(controls, "d=detail view")
+		controls = append(controls, "H=HIDE APPLIED")
 		controls = append(controls, "R=REVERSE ORDER")
 		
 		// Actions
