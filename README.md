@@ -17,10 +17,11 @@ An interactive terminal-based Git cherry-pick tool that makes selectively applyi
 *Screenshot showing branch selection with search functionality - coming soon*
 
 ### 🎯 Smart Commit Detection
-- Automatically identifies unique commits in your current branch vs a source branch
-- Filters commits by author to show only your contributions
-- Detects merge commits and already-applied commits
-- Shows detailed commit metadata (date, author, files changed, insertions/deletions)
+- **Identifies commits in your current branch** that are not yet in the selected source branch
+- **Filters by author** to show only your contributions (commits you authored)
+- **Detects merge commits** and already-applied commits with visual indicators
+- **Shows detailed metadata** including date, author, files changed, insertions/deletions
+- **Destination awareness** - commits will be cherry-picked to the selected target branch
 
 ### 🖱️ Interactive Selection
 - **Individual selection**: Use `Space` or `Enter` to toggle commit selection
@@ -96,14 +97,15 @@ cherry-picker --generate-config
 ```
 
 ### Workflow Example
-1. Navigate to your feature branch
+1. Navigate to your feature branch (e.g., `feature/new-api`)
 2. Run `cherry-picker`
 3. **Select source branch** - Choose branch to compare against (e.g., `dev`, `main`)
 4. **Select target branch** - Choose destination for cherry-picking (e.g., `staging`)
-5. Select commits using `Space` or `Enter`
-6. Use `/` to search for specific commits if needed
-7. Press `e` to execute cherry-pick
-8. Handle any conflicts in the resolution interface
+5. Tool shows commits from your current branch that are NOT in the source branch
+6. Select commits using `Space` or `Enter`
+7. Use `/` to search for specific commits if needed
+8. Press `e` to execute cherry-pick (applies selected commits to target branch)
+9. Handle any conflicts in the resolution interface
 
 ## ⌨️ Keyboard Shortcuts
 
