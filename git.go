@@ -20,12 +20,7 @@ func (cp *CherryPicker) validateBranch() error {
 		return fmt.Errorf("not on a valid Git branch")
 	}
 
-	// Check if current branch is in excluded branches
-	for _, excluded := range cp.config.Git.ExcludedBranches {
-		if cp.currentBranch == excluded {
-			return fmt.Errorf("don't run this script on %s directly", excluded)
-		}
-	}
+	// Removed excluded branches check - users can decide where to run the tool
 
 	output, err = exec.Command("git", "config", "user.name").Output()
 	if err != nil {
