@@ -37,6 +37,27 @@ func main() {
 		config.Behavior.DefaultReverse = true
 	}
 
+	// Interactive branch selection at startup
+	fmt.Println("🍒 Cherry Picker - Interactive Git Cherry-Pick Tool")
+	fmt.Println()
+	
+	sourceBranch, targetBranch, err := RunBranchSelector()
+	if err != nil {
+		if strings.Contains(err.Error(), "cancelled") {
+			// User chose to quit - exit gracefully without error message
+			os.Exit(0)
+		}
+		fmt.Printf("❌ Error selecting branches: %v\n", err)
+		os.Exit(1)
+	}
+	
+	// Override config with selected branches
+	config.Git.SourceBranch = sourceBranch
+	config.Git.TargetBranch = targetBranch
+	
+	fmt.Printf("✅ Selected: %s → %s\n", sourceBranch, targetBranch)
+	fmt.Println()
+
 	cp := &CherryPicker{
 		selected:    make(map[string]bool),
 		cursorBlink: true,
@@ -50,7 +71,7 @@ func main() {
 	}
 
 	if len(cp.commits) == 0 {
-		fmt.Println("✅ No unique commits found. Your branch is fully merged into dev.")
+		fmt.Printf("✅ No unique commits found. Your branch is fully merged into %s.\n", sourceBranch)
 		return
 	}
 

@@ -6,11 +6,22 @@ An interactive terminal-based Git cherry-pick tool that makes selectively applyi
 
 ## ✨ Features
 
+### 🌿 Interactive Branch Selection
+- **Dynamic branch selection at startup** - Choose source and target branches interactively
+- **Local branches only** - Clean list showing only local branches (no remote duplicates)
+- **Powerful search functionality** - Press `/` or `f` to search through branches
+- **Real-time filtering** - Results update as you type each character
+- **Smart navigation** - Use `j/k` or arrow keys to navigate filtered results
+- **Graceful cancellation** - Press `q` to exit cleanly without error messages
+
+*Screenshot showing branch selection with search functionality - coming soon*
+
 ### 🎯 Smart Commit Detection
-- Automatically identifies unique commits in your current branch vs a source branch
-- Filters commits by author to show only your contributions
-- Detects merge commits and already-applied commits
-- Shows detailed commit metadata (date, author, files changed, insertions/deletions)
+- **Identifies commits in your current branch** that are not yet in the selected source branch
+- **Filters by author** to show only your contributions (commits you authored)
+- **Detects merge commits** and already-applied commits with visual indicators
+- **Shows detailed metadata** including date, author, files changed, insertions/deletions
+- **Destination awareness** - commits will be cherry-picked to the selected target branch
 
 ### 🖱️ Interactive Selection
 - **Individual selection**: Use `Space` or `Enter` to toggle commit selection
@@ -31,10 +42,10 @@ An interactive terminal-based Git cherry-pick tool that makes selectively applyi
 - Examine commit metadata and file changes
 - Truncated diff view for large commits
 
-### 🌿 Dynamic Branch Management
-- **Source branch switching**: Press `B` to change the comparison branch
-- **Target branch switching**: Press `b` to change the destination branch
-- Lists available local and remote branches
+### 🔄 Runtime Branch Switching
+- **Source branch switching**: Press `B` to change the comparison branch during operation
+- **Target branch switching**: Press `b` to change the destination branch during operation
+- Lists available local branches for switching
 - Automatically reloads commits when branches change
 
 ### ⚔️ Comprehensive Conflict Resolution
@@ -86,16 +97,35 @@ cherry-picker --generate-config
 ```
 
 ### Workflow Example
-1. Navigate to your feature branch
+1. Navigate to your feature branch (e.g., `feature/new-api`)
 2. Run `cherry-picker`
-3. Select commits using `Space` or `Enter`
-4. Use `/` to search for specific commits
-5. Press `e` to execute cherry-pick
-6. Handle any conflicts in the resolution interface
+3. **Select source branch** - Choose branch to compare against (e.g., `dev`, `main`)
+4. **Select target branch** - Choose destination for cherry-picking (e.g., `staging`)
+5. Tool shows commits from your current branch that are NOT in the source branch
+6. Select commits using `Space` or `Enter`
+7. Use `/` to search for specific commits if needed
+8. Press `e` to execute cherry-pick (applies selected commits to target branch)
+9. Handle any conflicts in the resolution interface
 
 ## ⌨️ Keyboard Shortcuts
 
-### Navigation
+### Branch Selection (Startup)
+| Key | Action |
+|-----|--------|
+| `↑/↓` or `j/k` | Navigate through branches |
+| `Enter/Space` | Select highlighted branch |
+| `/` or `f` | Enter search mode |
+| `q/Ctrl+C` | Quit branch selection |
+
+### Branch Search Mode
+| Key | Action |
+|-----|--------|
+| `Type` | Filter branches in real-time |
+| `Enter` | Exit search mode (keep filter) |
+| `Esc` | Clear search and exit search mode |
+| `Backspace` | Remove last character from search |
+
+### Navigation (Main UI)
 | Key | Action |
 |-----|--------|
 | `↑/↓` or `j/k` | Move cursor up/down |
@@ -131,7 +161,7 @@ cherry-picker --generate-config
 | `i` | Interactive rebase mode |
 | `q/Ctrl+C` | Quit |
 
-### Search Mode
+### Commit Search Mode
 | Key | Action |
 |-----|--------|
 | `Type` | Filter commits |
