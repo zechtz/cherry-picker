@@ -38,6 +38,11 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return cp.handleBranchInput(msg)
 		}
 		
+		// Handle author mode input differently
+		if cp.authorMode {
+			return cp.handleAuthorInput(msg)
+		}
+		
 		switch msg.String() {
 		case "ctrl+c", "q":
 			cp.quitting = true
@@ -72,6 +77,9 @@ func (cp *CherryPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "B":
 			// Switch source branch
 			cp.enterBranchMode("source")
+		case "A":
+			// Switch author
+			cp.enterAuthorMode()
 		case "r":
 			// Toggle range selection mode
 			cp.toggleRangeSelection()
@@ -195,10 +203,20 @@ func (cp *CherryPicker) View() string {
 	if cp.branchMode {
 		return cp.renderBranchView()
 	}
+	
+	if cp.authorMode {
+		return cp.renderAuthorView()
+	}
 
 	var s strings.Builder
 
 	s.WriteString("📝 Cherry Pick Commits\n\n")
+	
+	// Show cherry-pick direction and author filter
+	s.WriteString(fmt.Sprintf("🌿 Cherry-picking from %s → %s\n", 
+		cp.config.Git.SourceBranch, 
+		cp.config.Git.TargetBranch))
+	s.WriteString(fmt.Sprintf("👤 Author Filter: %s\n\n", cp.selectedAuthor))
 	
 	// Show search interface if in search mode
 	if cp.searchMode {
@@ -520,6 +538,40 @@ func (cp *CherryPicker) handleBranchInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return cp, nil
 }
 
+// handleAuthorInput handles keyboard input when in author selection mode
+func (cp *CherryPicker) handleAuthorInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		cp.quitting = true
+		return cp, tea.Batch(tea.ExitAltScreen, tea.Quit)
+	case "esc":
+		// Exit author mode without changes
+		cp.exitAuthorMode()
+	case "enter":
+		// Select the current author and reload commits
+		if err := cp.selectAuthor(); err != nil {
+			// Handle error, but for now just exit author mode
+			cp.exitAuthorMode()
+		}
+	case "down", "j":
+		// Navigate down in author list
+		if cp.authorIndex < len(cp.availableAuthors)-1 {
+			cp.authorIndex++
+		}
+	case "up", "k":
+		// Navigate up in author list
+		if cp.authorIndex > 0 {
+			cp.authorIndex--
+		}
+	case "r":
+		// Refresh author list
+		if err := cp.getAvailableAuthors(); err != nil {
+			// Handle error - keep current list
+		}
+	}
+	return cp, nil
+}
+
 // renderBranchView renders the branch selection interface
 func (cp *CherryPicker) renderBranchView() string {
 	var s strings.Builder
@@ -575,6 +627,56 @@ func (cp *CherryPicker) renderBranchView() string {
 	s.WriteString("• ESC = Cancel and go back\n\n")
 	
 	s.WriteString("💡 Tip: Selecting a new branch will reload the commit list and clear current selections.\n")
+	
+	return s.String()
+}
+
+// renderAuthorView renders the author selection interface
+func (cp *CherryPicker) renderAuthorView() string {
+	var s strings.Builder
+	
+	s.WriteString("📝 Cherry Pick Commits - Author Selection\n")
+	s.WriteString("═══════════════════════════════════════════════════════════════════════════════\n")
+	s.WriteString(fmt.Sprintf("🌿 Cherry-picking from %s → %s\n\n", 
+		cp.config.Git.SourceBranch, 
+		cp.config.Git.TargetBranch))
+	s.WriteString(fmt.Sprintf("  Current Author Filter: %s\n", cp.selectedAuthor))
+	s.WriteString("\n")
+	
+	if len(cp.availableAuthors) == 0 {
+		s.WriteString("❌ No available authors found.\n\n")
+		s.WriteString("Press ESC to go back or 'r' to refresh.\n")
+		return s.String()
+	}
+	
+	s.WriteString("👤 Select Author to Filter Commits:\n")
+	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n")
+	
+	for i, author := range cp.availableAuthors {
+		cursor := "  "
+		if i == cp.authorIndex {
+			cursor = "→ "
+		}
+		
+		// Highlight current selected author
+		current := ""
+		if author == cp.selectedAuthor {
+			current = " (current)"
+		}
+		
+		s.WriteString(fmt.Sprintf("%s%s%s\n", cursor, author, current))
+	}
+	
+	s.WriteString("───────────────────────────────────────────────────────────────────────────────\n\n")
+	
+	// Instructions
+	s.WriteString("🔧 Controls:\n")
+	s.WriteString("• ↑↓/k j = Navigate authors\n")
+	s.WriteString("• ENTER = Select author and reload commits\n")
+	s.WriteString("• r = Refresh author list\n")
+	s.WriteString("• ESC = Cancel and go back\n\n")
+	
+	s.WriteString("💡 Tip: Selecting a different author will show only their commits and clear current selections.\n")
 	
 	return s.String()
 }
@@ -670,6 +772,7 @@ func (cp *CherryPicker) getControlsDisplay() string {
 		controls = append(controls, "p/TAB=PREVIEW")
 		controls = append(controls, "b=TARGET BRANCH")
 		controls = append(controls, "B=SOURCE BRANCH")
+		controls = append(controls, "A=AUTHOR")
 		controls = append(controls, "d=detail view")
 		controls = append(controls, "R=REVERSE ORDER")
 		

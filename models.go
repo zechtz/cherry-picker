@@ -28,35 +28,39 @@ type ConflictFile struct {
 }
 
 type CherryPicker struct {
-	currentBranch    string
-	authorName       string
-	commits          []Commit
-	selected         map[string]bool
-	currentIndex     int
-	quitting         bool
-	cursorBlink      bool
-	reverse          bool
-	config           *Config
-	detailView       bool
-	rangeSelection   bool
-	rangeStart       int
-	rangeEnd         int
-	conflictMode     bool
-	conflictCommit   string
-	conflictFiles    []ConflictFile
-	conflictResolved bool
-	rebaseRequested  bool
-	executeRequested bool
-	searchMode       bool
-	searchQuery      string
-	filteredCommits  []int  // indices of commits that match search
-	previewMode      bool
-	previewCommit    *Commit
-	previewDiff      string
-	previewStats     string
-	branchMode       bool
-	branchSwitchType string // "target" or "source"
+	currentBranch     string
+	authorName        string
+	selectedAuthor    string   // Author to filter commits by (defaults to authorName)
+	availableAuthors  []string
+	commits           []Commit
+	selected          map[string]bool
+	currentIndex      int
+	quitting          bool
+	cursorBlink       bool
+	reverse           bool
+	config            *Config
+	detailView        bool
+	rangeSelection    bool
+	rangeStart        int
+	rangeEnd          int
+	conflictMode      bool
+	conflictCommit    string
+	conflictFiles     []ConflictFile
+	conflictResolved  bool
+	rebaseRequested   bool
+	executeRequested  bool
+	searchMode        bool
+	searchQuery       string
+	filteredCommits   []int  // indices of commits that match search
+	previewMode       bool
+	previewCommit     *Commit
+	previewDiff       string
+	previewStats      string
+	branchMode        bool
+	branchSwitchType  string // "target" or "source"
 	availableBranches []string
+	authorMode        bool
+	authorIndex       int
 	branchIndex      int
 }
 
@@ -399,6 +403,47 @@ func (cp *CherryPicker) loadAvailableBranches() {
 			}
 		}
 	}
+}
+
+// enterAuthorMode enters author selection mode
+func (cp *CherryPicker) enterAuthorMode() {
+	cp.authorMode = true
+	cp.authorIndex = 0
+	
+	// Load available authors if not already loaded
+	if len(cp.availableAuthors) == 0 {
+		if err := cp.getAvailableAuthors(); err != nil {
+			// Handle error - for now just use current author
+			cp.availableAuthors = []string{cp.authorName}
+		}
+	}
+	
+	// Find current selected author index
+	for i, author := range cp.availableAuthors {
+		if author == cp.selectedAuthor {
+			cp.authorIndex = i
+			break
+		}
+	}
+}
+
+// exitAuthorMode exits author selection mode
+func (cp *CherryPicker) exitAuthorMode() {
+	cp.authorMode = false
+	cp.authorIndex = 0
+}
+
+// selectAuthor applies the selected author and reloads commits
+func (cp *CherryPicker) selectAuthor() error {
+	if cp.authorIndex >= len(cp.availableAuthors) {
+		return fmt.Errorf("invalid author selection")
+	}
+	
+	cp.selectedAuthor = cp.availableAuthors[cp.authorIndex]
+	cp.exitAuthorMode()
+	
+	// Reload commits with new author filter
+	return cp.reloadCommits()
 }
 
 // selectBranch applies the selected branch and reloads commits
