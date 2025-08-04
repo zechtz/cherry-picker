@@ -12,7 +12,7 @@ import (
 func main() {
 	var reverse bool
 	var generateConfig bool
-	flag.BoolVar(&reverse, "reverse", false, "display commits in reverse order")
+	flag.BoolVar(&reverse, "reverse", false, "display commits in reverse order (newest first)")
 	flag.BoolVar(&generateConfig, "generate-config", false, "generate default configuration file")
 	flag.Parse()
 
